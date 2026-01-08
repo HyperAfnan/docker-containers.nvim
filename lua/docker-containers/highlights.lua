@@ -18,26 +18,26 @@ M.STATUS_STOPPED = "DockerStatusStopped"
 ---@param n integer
 ---@param chars integer?
 local function dec_to_hex(n, chars)
-  chars = chars or 6
-  local hex = string.format("%0" .. chars .. "x", n)
-  while #hex < chars do
-    hex = "0" .. hex
-  end
-  return hex
+	chars = chars or 6
+	local hex = string.format("%0" .. chars .. "x", n)
+	while #hex < chars do
+		hex = "0" .. hex
+	end
+	return hex
 end
 
 ---@param name string
 local get_hl_by_name = function(name)
-  if vim.api.nvim_get_hl then
-    local hl = vim.api.nvim_get_hl(0, { name = name, link = false })
-    ---@diagnostic disable-next-line: inject-field
-    hl.foreground = hl.fg
-    ---@diagnostic disable-next-line: inject-field
-    hl.background = hl.bg
-    return hl
-  end
-  ---@diagnostic disable-next-line: deprecated
-  return vim.api.nvim_get_hl_by_name(name, true)
+	if vim.api.nvim_get_hl then
+		local hl = vim.api.nvim_get_hl(0, { name = name, link = false })
+		---@diagnostic disable-next-line: inject-field
+		hl.foreground = hl.fg
+		---@diagnostic disable-next-line: inject-field
+		hl.background = hl.bg
+		return hl
+	end
+	---@diagnostic disable-next-line: deprecated
+	return vim.api.nvim_get_hl_by_name(name, true)
 end
 
 ---If the given highlight group is not defined, define it.
@@ -48,77 +48,77 @@ end
 ---@param gui string? The gui to use, if the highlight group is not defined and it is not linked to another group.
 ---@return table hlgroups The highlight group values.
 M.create_highlight_group = function(hl_group_name, link_to_if_exists, background, foreground, gui)
-  local success, hl_group = pcall(get_hl_by_name, hl_group_name)
-  if not success or not hl_group.foreground or not hl_group.background then
-    for _, link_to in ipairs(link_to_if_exists) do
-      success, hl_group = pcall(get_hl_by_name, link_to)
-      if success then
-        local new_group_has_settings = background or foreground or gui
-        local link_to_has_settings = hl_group.foreground or hl_group.background
-        if link_to_has_settings or not new_group_has_settings then
-          vim.cmd("highlight default link " .. hl_group_name .. " " .. link_to)
-          return hl_group
-        end
-      end
-    end
+	local success, hl_group = pcall(get_hl_by_name, hl_group_name)
+	if not success or not hl_group.foreground or not hl_group.background then
+		for _, link_to in ipairs(link_to_if_exists) do
+			success, hl_group = pcall(get_hl_by_name, link_to)
+			if success then
+				local new_group_has_settings = background or foreground or gui
+				local link_to_has_settings = hl_group.foreground or hl_group.background
+				if link_to_has_settings or not new_group_has_settings then
+					vim.cmd("highlight default link " .. hl_group_name .. " " .. link_to)
+					return hl_group
+				end
+			end
+		end
 
-    if type(background) == "number" then
-      background = dec_to_hex(background)
-    end
-    if type(foreground) == "number" then
-      foreground = dec_to_hex(foreground)
-    end
+		if type(background) == "number" then
+			background = dec_to_hex(background)
+		end
+		if type(foreground) == "number" then
+			foreground = dec_to_hex(foreground)
+		end
 
-    local cmd = "highlight default " .. hl_group_name
-    if background then
-      cmd = cmd .. " guibg=#" .. background
-    end
-    if foreground then
-      cmd = cmd .. " guifg=#" .. foreground
-    else
-      cmd = cmd .. " guifg=NONE"
-    end
-    if gui then
-      cmd = cmd .. " gui=" .. gui
-    end
-    vim.cmd(cmd)
+		local cmd = "highlight default " .. hl_group_name
+		if background then
+			cmd = cmd .. " guibg=#" .. background
+		end
+		if foreground then
+			cmd = cmd .. " guifg=#" .. foreground
+		else
+			cmd = cmd .. " guifg=NONE"
+		end
+		if gui then
+			cmd = cmd .. " gui=" .. gui
+		end
+		vim.cmd(cmd)
 
-    return {
-      background = background and tonumber(background, 16) or nil,
-      foreground = foreground and tonumber(foreground, 16) or nil,
-    }
-  end
-  return hl_group
+		return {
+			background = background and tonumber(background, 16) or nil,
+			foreground = foreground and tonumber(foreground, 16) or nil,
+		}
+	end
+	return hl_group
 end
 
 M.setup = function()
-  -- Section headers (Containers, Images, Volumes, Networks)
-  M.create_highlight_group(M.SECTION, { "Directory", "Title" }, nil, "61afef", "bold")
-  
-  -- Project names under Containers
-  M.create_highlight_group(M.PROJECT, { "Function", "String" }, nil, "98c379")
-  
-  -- Container items
-  M.create_highlight_group(M.CONTAINER, { "Normal" }, nil, "abb2bf")
-  
-  -- Image items
-  M.create_highlight_group(M.IMAGE, { "Normal" }, nil, "abb2bf")
-  
-  -- Volume items
-  M.create_highlight_group(M.VOLUME, { "Normal" }, nil, "abb2bf")
-  
-  -- Network items
-  M.create_highlight_group(M.NETWORK, { "Normal" }, nil, "abb2bf")
-  
-  -- Icons (arrows and bullets) - dimmed
-  M.create_highlight_group(M.ICON, { "Comment", "NonText" }, nil, "5c6370")
-  
-  -- Count numbers in parentheses
-  M.create_highlight_group(M.COUNT, { "Number", "Constant" }, nil, "56b6c2")
-  
-  -- Container status indicators
-  M.create_highlight_group(M.STATUS_RUNNING, { "String", "DiffAdd" }, nil, "98c379", "bold")  -- Green
-  M.create_highlight_group(M.STATUS_STOPPED, { "Number" }, nil, "5c6370", "bold")  -- Gray
+	-- Section headers (Containers, Images, Volumes, Networks)
+	M.create_highlight_group(M.SECTION, { "Directory", "Title" }, nil, "61afef", "bold")
+
+	-- Project names under Containers
+	M.create_highlight_group(M.PROJECT, { "Function", "String" }, nil, "98c379")
+
+	-- Container items
+	M.create_highlight_group(M.CONTAINER, { "Normal" }, nil, "abb2bf")
+
+	-- Image items
+	M.create_highlight_group(M.IMAGE, { "Normal" }, nil, "abb2bf")
+
+	-- Volume items
+	M.create_highlight_group(M.VOLUME, { "Normal" }, nil, "abb2bf")
+
+	-- Network items
+	M.create_highlight_group(M.NETWORK, { "Normal" }, nil, "abb2bf")
+
+	-- Icons (arrows and bullets) - dimmed
+	M.create_highlight_group(M.ICON, { "Comment", "NonText" }, nil, "5c6370")
+
+	-- Count numbers in parentheses
+	M.create_highlight_group(M.COUNT, { "Number", "Constant" }, nil, "56b6c2")
+
+	-- Container status indicators
+	M.create_highlight_group(M.STATUS_RUNNING, { "String", "DiffAdd" }, nil, "98c379", "bold") -- Green
+	M.create_highlight_group(M.STATUS_STOPPED, { "Number" }, nil, "5c6370", "bold") -- Gray
 end
 
 return M

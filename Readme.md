@@ -68,7 +68,10 @@ require("docker-containers").setup()
 
 ```lua
 require("docker-containers").setup({
-  position = "right",  -- "left" or "right"
+  position = "right",  -- left | right
+  term = {
+      direction = "horizontal" -- tabs | horizontal | vertical | float
+  },
   maps = {
     collapse = "<space>",
     restart = "r",
@@ -89,3 +92,4 @@ require("docker-containers").setup({
 ## Acknowledgments
 
 - Built with [nvim-nio](https://github.com/nvim-neotest/nvim-nio) for async operations
+- Terminal integration via [toggleterm.nvim](https://github.com/akinsho/toggleterm.nvim)

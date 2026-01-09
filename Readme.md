@@ -7,15 +7,12 @@ A Neovim plugin for managing Docker containers, images, volumes, and networks di
 - 🚀 **Container Management**: Start, stop, and restart Docker containers
 - 📦 **Multi-Resource View**: Browse containers, images, volumes, and networks
 - 🎯 **Docker Compose Support**: Automatically groups containers by compose project
-- 🎨 **Syntax Highlighting**: Color-coded interface with status indicators
 - ⚡ **Async Operations**: Non-blocking container operations
-- 🔧 **Customizable**: Configure keybindings, icons, and UI position
 
 ## Requirements
 
-- Neovim 0.5+
-- Docker installed and accessible via command line
-- `nvim-nio`
+- Neovim 0.9 or later
+- [Docker](https://hub.docker.com/)
 
 ## Installation
 
@@ -60,27 +57,9 @@ require("docker-containers").setup()
 
 ## Usage
 
-### Opening the Sidebar
-
-Run the command:
-
 ```vim
 :DockerContainers
 ```
-
-This will open the Docker sidebar showing all your containers, images, volumes, and networks.
-
-### Keybindings
-
-Default keybindings (customizable):
-
-| Key | Action |
-|-----|--------|
-| `<Space>` | Collapse/expand sections and projects |
-| `s` | Start a container |
-| `d` | Stop a container |
-| `r` | Restart a container |
-| `q` | Close the sidebar |
 
 ## Configuration
 
@@ -95,14 +74,11 @@ require("docker-containers").setup({
     close = "q"
   },
   icons = {
-    container_running = "",
-    container_stopped = "",
-    project = "",
-    image = "📦",
-    volume = "🗄️",
-    network = "🌐",
-    expanded = "",
-    collapsed = "",
+    container_running = "",
+    container_stopped = "",
+    project = "",
+    expanded = "",
+    collapsed = "",
   }
 })
 ```

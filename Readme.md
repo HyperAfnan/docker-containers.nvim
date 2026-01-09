@@ -20,9 +20,10 @@ A Neovim plugin for managing Docker containers, images, volumes, and networks di
 
 ```lua
 {
-  "yourusername/docker-containers.nvim",
+  "HyperAfnan/docker-containers.nvim",
   dependencies = {
     "nvim-neotest/nvim-nio"
+    "akinsho/toggleterm.nvim"
   },
   config = function()
     require("docker-containers").setup()
@@ -34,8 +35,8 @@ A Neovim plugin for managing Docker containers, images, volumes, and networks di
 
 ```lua
 use {
-  'yourusername/docker-containers.nvim',
-  requires = { 'nvim-neotest/nvim-nio' },
+  'HyperAfnan/docker-containers.nvim',
+  requires = { 'nvim-neotest/nvim-nio' , 'akinsho/toggleterm.nvim' },
   config = function()
     require("docker-containers").setup()
   end
@@ -46,7 +47,9 @@ use {
 
 ```vim
 Plug 'nvim-neotest/nvim-nio'
-Plug 'yourusername/docker-containers.nvim'
+Plug 'HyperAfnan/docker-containers.nvim'
+Plug 'akinsho/toggleterm.nvim'
+
 ```
 
 Then in your init.lua:

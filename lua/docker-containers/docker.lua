@@ -1,3 +1,6 @@
+local Terminal = require("toggleterm.terminal").Terminal
+local ToggleTerm = require("toggleterm")
+local config = require("docker-containers.config")
 local nio = require("nio")
 local M = {}
 
@@ -10,6 +13,7 @@ local function parse_status(status_string)
 	end
 end
 
+-- Get list of containers with their status and associated compose project
 function M.get_containers()
 	local handle = io.popen("docker ps -a --format \"{{.Names}}\t{{.Status}}\t{{.Image}}\"")
 	if not handle then
@@ -51,7 +55,6 @@ function M.get_containers()
 		end
 	end
 
-	-- Group containers by project
 	local projects = {}
 	for _, container in ipairs(containers) do
 		if not projects[container.project] then
@@ -63,6 +66,7 @@ function M.get_containers()
 	return projects
 end
 
+-- Get list of images
 function M.get_images()
 	local handle =
 		io.popen("docker images --format \"{{.Repository}}:{{.Tag}}\t{{.ID}}\t{{.Size}}\"")
@@ -88,6 +92,7 @@ function M.get_images()
 	return images
 end
 
+-- Get list of volumes
 function M.get_volumes()
 	local handle = io.popen("docker volume ls --format \"{{.Name}}\"")
 	if not handle then
@@ -107,6 +112,7 @@ function M.get_volumes()
 	return volumes
 end
 
+-- Get list of networks
 function M.get_networks()
 	local handle = io.popen("docker network ls --format \"{{.Name}}\t{{.Driver}}\"")
 	if not handle then
@@ -199,6 +205,22 @@ function M.restart_container(container_name, callback)
 
 		handle.close()
 	end)
+end
+
+-- Attach to a container to a terminal
+function M.attach_container(container_name)
+	Terminal:new({
+		cmd = "docker exec -it " .. container_name .. " /bin/bash",
+		direction = config.term.direction,
+      display_name = container_name .. "_term",
+      hidden = true,
+
+	}):toggle()
+end
+
+-- View logs of a container in a terminal
+function M.view_logs(container_name)
+  ToggleTerm.exec("docker logs --tail 1000 " .. container_name, 1, 20)
 end
 
 return M

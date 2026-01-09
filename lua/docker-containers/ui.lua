@@ -491,7 +491,41 @@ local function restart_container()
 	end)
 end
 
-local function setup_keymaps(config)
+local function attach_terminal()
+	local line = vim.api.nvim_win_get_cursor(M.sidebar_win)[1]
+	local node = M.line_to_node[line]
+	local container_name = node.data.name
+
+	if not node or node.kind ~= "container" then
+		return
+	end
+
+   if node.data.state == "stopped" then
+      vim.notify("Unable to attach to " .. container_name .. " (Container not running)", vim.log.levels.ERROR, {
+         title = "  docker-containers.nvim",
+         timeout = 2000,
+      })
+      return
+   else
+      docker.attach_container(container_name)
+   end
+
+end
+
+local function view_logs()
+	local line = vim.api.nvim_win_get_cursor(M.sidebar_win)[1]
+	local node = M.line_to_node[line]
+	local container_name = node.data.name
+
+	if not node or node.kind ~= "container" then
+		return
+	end
+
+   docker.view_logs(container_name)
+
+end
+
+local function setup_keymaps()
 	vim.api.nvim_buf_set_keymap(M.sidebar_buf, "n", config.maps.collapse, "", {
 		noremap = true,
 		silent = true,
@@ -522,9 +556,20 @@ local function setup_keymaps(config)
 		silent = true,
 		callback = restart_container,
 	})
+
+   vim.api.nvim_buf_set_keymap(M.sidebar_buf, "n", config.maps.attach_terminal, "", {
+		noremap = true,
+		silent = true,
+		callback = attach_terminal,
+   })
+   vim.api.nvim_buf_set_keymap(M.sidebar_buf, "n", config.maps.view_logs, "", {
+		noremap = true,
+		silent = true,
+		callback = view_logs,
+   })
 end
 
-function M.open(config)
+function M.open()
 	-- Setup highlights
 	highlights.setup()
 
@@ -554,7 +599,7 @@ function M.open(config)
 	vim.api.nvim_win_set_option(M.sidebar_win, "winfixwidth", true)
 
 	-- Set up keymaps
-	setup_keymaps(config)
+	setup_keymaps()
 
 	-- Initial render
 	M.refresh()

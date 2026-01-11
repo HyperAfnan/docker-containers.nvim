@@ -4,10 +4,10 @@ A Neovim plugin for managing Docker containers, images, volumes, and networks di
 
 ## Features
 
-- 🚀 **Container Management**: Start, stop, and restart Docker containers
-- 📦 **Multi-Resource View**: Browse containers, images, volumes, and networks
-- 🎯 **Docker Compose Support**: Automatically groups containers by compose project
-- ⚡ **Async Operations**: Non-blocking container operations
+- **Container Management**: Start, stop, and restart Docker containers
+- **Multi-Resource View**: Browse containers, images, volumes, and networks
+- **Docker Compose Support**: Automatically groups containers by compose project
+- **Async Operations**: Non-blocking container operations
 
 ## Requirements
 

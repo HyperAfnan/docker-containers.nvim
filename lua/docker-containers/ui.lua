@@ -17,7 +17,6 @@ M.state = {
 	},
 }
 
--- Create a new node
 local function create_node(kind, data, collapsed)
 	return {
 		kind = kind,
@@ -28,17 +27,14 @@ local function create_node(kind, data, collapsed)
 	}
 end
 
--- Add a child node to a parent
 local function add_child(parent, child)
 	table.insert(parent.children, child)
 	child.parent = parent
 end
 
--- Build the tree from docker data
 local function build_tree(docker_data, state)
 	local root = create_node("root", {})
 
-	-- Containers section
 	local containers_section = create_node("section", {
 		name = "Containers",
 	}, state.collapsed.containers or false)
@@ -50,14 +46,12 @@ local function build_tree(docker_data, state)
 	end
 	containers_section.data.count = total_containers
 
-	-- Sort projects by name
 	local project_names = {}
 	for project_name, _ in pairs(projects) do
 		table.insert(project_names, project_name)
 	end
 	table.sort(project_names)
 
-	-- Build project nodes
 	for _, project_name in ipairs(project_names) do
 		local containers = projects[project_name]
 		local project_key = "project_" .. project_name
@@ -80,7 +74,6 @@ local function build_tree(docker_data, state)
 
 	add_child(root, containers_section)
 
-	-- Images section
 	local images_section = create_node("section", {
 		name = "Images",
 		count = #docker_data.images,
@@ -97,7 +90,6 @@ local function build_tree(docker_data, state)
 
 	add_child(root, images_section)
 
-	-- Volumes section
 	local volumes_section = create_node("section", {
 		name = "Volumes",
 		count = #docker_data.volumes,
@@ -112,7 +104,6 @@ local function build_tree(docker_data, state)
 
 	add_child(root, volumes_section)
 
-	-- Networks section
 	local networks_section = create_node("section", {
 		name = "Networks",
 		count = #docker_data.networks,
@@ -131,14 +122,12 @@ local function build_tree(docker_data, state)
 	return root
 end
 
--- Render the tree to lines
 local function render_tree(root)
 	local lines = {}
 	local line_to_node = {}
 
 	local function render_node(node, indent)
 		if node.kind == "root" then
-			-- Root doesn't render, just its children
 			for _, child in ipairs(node.children) do
 				render_node(child, indent)
 			end
@@ -155,7 +144,6 @@ local function render_tree(root)
 				end
 			end
 
-			-- Add spacing after section
 			table.insert(lines, "")
 		elseif node.kind == "project" then
 			local icon = node.collapsed and config.icons.collapsed or config.icons.expanded
@@ -201,13 +189,11 @@ local function render_tree(root)
 	return lines, line_to_node
 end
 
--- Toggle a node's collapsed state
 local function toggle_node(node, state)
 	if not node then
 		return false
 	end
 
-	-- Only collapsible nodes can toggle
 	if node.kind == "section" or node.kind == "project" then
 		node.collapsed = not node.collapsed
 
@@ -223,7 +209,6 @@ local function toggle_node(node, state)
 	return false
 end
 
--- Apply highlights to the buffer
 local function apply_highlights()
 	if not M.sidebar_buf or not vim.api.nvim_buf_is_valid(M.sidebar_buf) then
 		return
@@ -240,7 +225,6 @@ local function apply_highlights()
 		end
 
 		if node.kind == "section" then
-			-- Highlight icon
 			vim.api.nvim_buf_add_highlight(
 				M.sidebar_buf,
 				highlights.ns_id,
@@ -249,7 +233,7 @@ local function apply_highlights()
 				0,
 				1
 			)
-			-- Highlight section name
+
 			local name_start = line:find(node.data.name)
 			if name_start then
 				vim.api.nvim_buf_add_highlight(
@@ -261,7 +245,7 @@ local function apply_highlights()
 					name_start - 1 + #node.data.name
 				)
 			end
-			-- Highlight count
+
 			local count_start = line:find("%(")
 			if count_start then
 				vim.api.nvim_buf_add_highlight(
@@ -274,7 +258,6 @@ local function apply_highlights()
 				)
 			end
 		elseif node.kind == "project" then
-			-- Apply project highlight to entire line first (as base)
 			vim.api.nvim_buf_add_highlight(
 				M.sidebar_buf,
 				highlights.ns_id,
@@ -283,12 +266,9 @@ local function apply_highlights()
 				0,
 				#line
 			)
-			-- Find icon position (after leading spaces)
 			local leading_spaces = line:match("^(%s*)")
 			local spaces_len = #leading_spaces
-			-- Icon is right after the spaces (▶ or ▼ are 3 bytes each in UTF-8)
 			local icon_end = spaces_len + 3
-			-- Apply icon highlight on top with higher priority
 			vim.api.nvim_buf_add_highlight(
 				M.sidebar_buf,
 				highlights.ns_id,
@@ -298,7 +278,6 @@ local function apply_highlights()
 				icon_end
 			)
 		elseif node.kind == "container" then
-			-- Highlight container name
 			vim.api.nvim_buf_add_highlight(
 				M.sidebar_buf,
 				highlights.ns_id,
@@ -307,7 +286,6 @@ local function apply_highlights()
 				0,
 				#line
 			)
-			-- Highlight status indicator
 			local leading_spaces = line:match("^(%s*)")
 			local spaces_len = #leading_spaces
 			local status_icon_end = spaces_len + 3
@@ -356,13 +334,11 @@ local function apply_highlights()
 	end
 end
 
--- Refresh the entire UI
 function M.refresh()
 	if not M.sidebar_buf or not vim.api.nvim_buf_is_valid(M.sidebar_buf) then
 		return
 	end
 
-	-- Fetch docker data
 	local docker_data = {
 		containers = docker.get_containers(),
 		images = docker.get_images(),
@@ -370,23 +346,18 @@ function M.refresh()
 		networks = docker.get_networks(),
 	}
 
-	-- Build tree with current state
 	M.tree = build_tree(docker_data, M.state)
 
-	-- Render tree to lines
 	local lines, line_mapping = render_tree(M.tree)
 	M.line_to_node = line_mapping
 
-	-- Update buffer
 	vim.api.nvim_buf_set_option(M.sidebar_buf, "modifiable", true)
 	vim.api.nvim_buf_set_lines(M.sidebar_buf, 0, -1, false, lines)
 	vim.api.nvim_buf_set_option(M.sidebar_buf, "modifiable", false)
 
-	-- Apply highlights
 	apply_highlights()
 end
 
--- Handle toggle action
 local function toggle_section()
 	local line = vim.api.nvim_win_get_cursor(M.sidebar_win)[1]
 	local node = M.line_to_node[line]
@@ -396,7 +367,6 @@ local function toggle_section()
 	end
 end
 
--- Start container
 local function start_container()
 	local line = vim.api.nvim_win_get_cursor(M.sidebar_win)[1]
 	local node = M.line_to_node[line]
@@ -414,13 +384,11 @@ local function start_container()
 		vim.notify("Failed to start container: " .. message, vim.log.levels.ERROR)
 	end
 
-	-- Refresh UI after a short delay to let docker update
 	vim.defer_fn(function()
 		M.refresh()
 	end, 500)
 end
 
--- Stop container
 local function stop_container()
 	local line = vim.api.nvim_win_get_cursor(M.sidebar_win)[1]
 	local node = M.line_to_node[line]
@@ -455,7 +423,6 @@ local function stop_container()
 	end)
 end
 
--- Restart container
 local function restart_container()
 	local line = vim.api.nvim_win_get_cursor(M.sidebar_win)[1]
 	local node = M.line_to_node[line]
@@ -485,7 +452,6 @@ local function restart_container()
 				})
 			end
 
-			-- Refresh UI after command completes
 			M.refresh()
 		end)
 	end)
@@ -531,6 +497,7 @@ local function setup_keymaps()
 		silent = true,
 		callback = toggle_section,
 	})
+
 	vim.api.nvim_buf_set_keymap(M.sidebar_buf, "n", config.maps.close or "q", "", {
 		noremap = true,
 		silent = true,
@@ -538,19 +505,19 @@ local function setup_keymaps()
 			vim.api.nvim_win_close(M.sidebar_win, false)
 		end,
 	})
-	-- Start container
+
 	vim.api.nvim_buf_set_keymap(M.sidebar_buf, "n", config.maps.start or "s", "", {
 		noremap = true,
 		silent = true,
 		callback = start_container,
 	})
-	-- Stop container
+
 	vim.api.nvim_buf_set_keymap(M.sidebar_buf, "n", config.maps.down or "d", "", {
 		noremap = true,
 		silent = true,
 		callback = stop_container,
 	})
-	-- Restart container
+
 	vim.api.nvim_buf_set_keymap(M.sidebar_buf, "n", config.maps.restart or "r", "", {
 		noremap = true,
 		silent = true,
@@ -562,25 +529,23 @@ local function setup_keymaps()
 		silent = true,
 		callback = attach_terminal,
    })
+
    vim.api.nvim_buf_set_keymap(M.sidebar_buf, "n", config.maps.view_logs, "", {
 		noremap = true,
 		silent = true,
 		callback = view_logs,
    })
+
 end
 
 function M.open()
-	-- Setup highlights
 	highlights.setup()
 
-	-- Create a new buffer
 	M.sidebar_buf = vim.api.nvim_create_buf(false, true)
 
-	-- Set buffer options
 	vim.api.nvim_buf_set_option(M.sidebar_buf, "bufhidden", "wipe")
 	vim.api.nvim_buf_set_option(M.sidebar_buf, "filetype", "docker-containers")
 
-	-- Create a vertical split on the configured side
 	if config.position == "left" then
 		vim.cmd("topleft vsplit")
 	else
@@ -588,20 +553,16 @@ function M.open()
 	end
 	M.sidebar_win = vim.api.nvim_get_current_win()
 
-	-- Set the buffer in the window
 	vim.api.nvim_win_set_buf(M.sidebar_win, M.sidebar_buf)
 
-	-- Set window options
 	vim.api.nvim_win_set_width(M.sidebar_win, 40)
 	vim.api.nvim_win_set_option(M.sidebar_win, "number", false)
 	vim.api.nvim_win_set_option(M.sidebar_win, "relativenumber", false)
 	vim.api.nvim_win_set_option(M.sidebar_win, "signcolumn", "no")
 	vim.api.nvim_win_set_option(M.sidebar_win, "winfixwidth", true)
 
-	-- Set up keymaps
 	setup_keymaps()
 
-	-- Initial render
 	M.refresh()
 end
 

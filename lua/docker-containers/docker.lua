@@ -1,10 +1,8 @@
 local Terminal = require("toggleterm.terminal").Terminal
-local ToggleTerm = require("toggleterm")
 local config = require("docker-containers.config")
 local nio = require("nio")
 local M = {}
 
--- Parse container status to determine if running
 local function parse_status(status_string)
 	if status_string:match("^Up ") then
 		return "running"
@@ -13,7 +11,6 @@ local function parse_status(status_string)
 	end
 end
 
--- Get list of containers with their status and associated compose project
 function M.get_containers()
 	local handle = io.popen("docker ps -a --format \"{{.Names}}\t{{.Status}}\t{{.Image}}\"")
 	if not handle then
@@ -27,7 +24,6 @@ function M.get_containers()
 	for line in result:gmatch("[^\r\n]+") do
 		local name, status, image = line:match("([^\t]+)\t([^\t]+)\t([^\t]+)")
 		if name then
-			-- Get labels for compose project
 			local label_handle =
 				io.popen("docker inspect " .. name .. " --format='{{json .Config.Labels}}'")
 			local labels_json = ""
@@ -36,7 +32,6 @@ function M.get_containers()
 				label_handle:close()
 			end
 
-			-- Extract compose project name from labels
 			local project = "standalone"
 			if labels_json and labels_json ~= "" then
 				local project_match = labels_json:match("\"com.docker.compose.project\":\"([^\"]+)\"")
@@ -66,7 +61,6 @@ function M.get_containers()
 	return projects
 end
 
--- Get list of images
 function M.get_images()
 	local handle =
 		io.popen("docker images --format \"{{.Repository}}:{{.Tag}}\t{{.ID}}\t{{.Size}}\"")
@@ -92,7 +86,6 @@ function M.get_images()
 	return images
 end
 
--- Get list of volumes
 function M.get_volumes()
 	local handle = io.popen("docker volume ls --format \"{{.Name}}\"")
 	if not handle then
@@ -112,7 +105,6 @@ function M.get_volumes()
 	return volumes
 end
 
--- Get list of networks
 function M.get_networks()
 	local handle = io.popen("docker network ls --format \"{{.Name}}\t{{.Driver}}\"")
 	if not handle then
@@ -136,7 +128,6 @@ function M.get_networks()
 	return networks
 end
 
--- Start a container
 function M.start_container(container_name)
 	local handle = io.popen("docker start " .. container_name .. " 2>&1")
 	if not handle then
@@ -153,7 +144,6 @@ function M.start_container(container_name)
 	end
 end
 
--- Stop a container
 function M.stop_container(container_name, callback)
 	nio.run(function()
 		local handle, err = nio.process.run({
@@ -180,7 +170,6 @@ function M.stop_container(container_name, callback)
 	end)
 end
 
--- Restart a container
 function M.restart_container(container_name, callback)
 	nio.run(function()
 		local handle, err = nio.process.run({
@@ -207,7 +196,6 @@ function M.restart_container(container_name, callback)
 	end)
 end
 
--- Attach to a container to a terminal
 function M.attach_container(container_name)
 	Terminal:new({
 		cmd = "docker exec -it " .. container_name .. " /bin/bash",
@@ -218,9 +206,13 @@ function M.attach_container(container_name)
 	}):toggle()
 end
 
--- View logs of a container in a terminal
 function M.view_logs(container_name)
-  ToggleTerm.exec("docker logs --tail 1000 " .. container_name, 1, 20)
+   Terminal:new({
+      cmd = "docker logs -f " .. container_name,
+      direction = config.term.direction,
+         display_name = container_name .. "_logs",
+         hidden = true,
+   }):toggle()
 end
 
 return M

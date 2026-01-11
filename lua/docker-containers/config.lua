@@ -1,7 +1,7 @@
 local M = {
-	position = "right", -- or left
+	position = "right", --- left | right
    term = {
-      direction = "horizontal", -- float or horizontal
+      direction = "horizontal", --- tabs | horizontal | vertical | float
    },
 	maps = {
 		collapse = "<space>",

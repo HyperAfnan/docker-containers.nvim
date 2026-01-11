@@ -3,7 +3,6 @@ local M = {}
 ---@type integer
 M.ns_id = vim.api.nvim_create_namespace("docker-containers.nvim")
 
--- Highlight group names
 M.SECTION = "DockerSection"
 M.PROJECT = "DockerProject"
 M.CONTAINER = "DockerContainer"
@@ -92,33 +91,16 @@ M.create_highlight_group = function(hl_group_name, link_to_if_exists, background
 end
 
 M.setup = function()
-	-- Section headers (Containers, Images, Volumes, Networks)
 	M.create_highlight_group(M.SECTION, { "Directory", "Title" }, nil, "61afef", "bold")
-
-	-- Project names under Containers
 	M.create_highlight_group(M.PROJECT, { "Function", "String" }, nil, "98c379")
-
-	-- Container items
 	M.create_highlight_group(M.CONTAINER, { "Normal" }, nil, "abb2bf")
-
-	-- Image items
 	M.create_highlight_group(M.IMAGE, { "Normal" }, nil, "abb2bf")
-
-	-- Volume items
 	M.create_highlight_group(M.VOLUME, { "Normal" }, nil, "abb2bf")
-
-	-- Network items
 	M.create_highlight_group(M.NETWORK, { "Normal" }, nil, "abb2bf")
-
-	-- Icons (arrows and bullets) - dimmed
 	M.create_highlight_group(M.ICON, { "Comment", "NonText" }, nil, "5c6370")
-
-	-- Count numbers in parentheses
 	M.create_highlight_group(M.COUNT, { "Number", "Constant" }, nil, "56b6c2")
-
-	-- Container status indicators
-	M.create_highlight_group(M.STATUS_RUNNING, { "String", "DiffAdd" }, nil, "98c379", "bold") -- Green
-	M.create_highlight_group(M.STATUS_STOPPED, { "Number" }, nil, "5c6370", "bold") -- Gray
+	M.create_highlight_group(M.STATUS_RUNNING, { "String", "DiffAdd" }, nil, "98c379", "bold")
+	M.create_highlight_group(M.STATUS_STOPPED, { "Number" }, nil, "5c6370", "bold")
 end
 
 return M

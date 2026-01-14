@@ -10,7 +10,8 @@ local M = {
 		start = "s",
 		close = "q",
       attach_terminal = "t",
-      view_logs = "l"
+      view_logs = "l",
+      refresh = "R",
 	},
 	icons = {
 		container_running = "",

@@ -367,6 +367,26 @@ local function toggle_section()
 	end
 end
 
+function M.get_selected_nodes()
+	local start_line = vim.fn.line("v")
+	local end_line = vim.fn.line(".")
+
+	if start_line > end_line then
+		start_line, end_line = end_line, start_line
+	end
+
+	local nodes = {}
+
+	for l = start_line, end_line do
+		local node = M.line_to_node[l]
+		if node and node.kind == "container" then
+			table.insert(nodes, node)
+		end
+	end
+
+	return nodes
+end
+
 local function start_container()
 	local line = vim.api.nvim_win_get_cursor(M.sidebar_win)[1]
 	local node = M.line_to_node[line]
@@ -387,6 +407,30 @@ local function start_container()
 	vim.defer_fn(function()
 		M.refresh()
 	end, 500)
+end
+
+local function start_selected_containers()
+	local nodes = M.get_selected_nodes()
+
+	if #nodes == 0 then
+		vim.notify("No containers selected", vim.log.levels.WARN)
+		return
+	end
+
+	local containers
+	for _, node in ipairs(nodes) do
+		if not containers then
+			containers = node.data.name
+		else
+			containers = containers .. " " .. node.data.name
+		end
+	end
+	vim.notify("Taking down selected containers...", vim.log.levels.INFO)
+	docker.start_container(containers)
+
+	vim.notify("Selected containers started", vim.log.levels.INFO)
+
+	vim.defer_fn(M.refresh, 500)
 end
 
 local function stop_container()
@@ -466,16 +510,19 @@ local function attach_terminal()
 		return
 	end
 
-   if node.data.state == "stopped" then
-      vim.notify("Unable to attach to " .. container_name .. " (Container not running)", vim.log.levels.ERROR, {
-         title = "  docker-containers.nvim",
-         timeout = 2000,
-      })
-      return
-   else
-      docker.attach_container(container_name)
-   end
-
+	if node.data.state == "stopped" then
+		vim.notify(
+			"Unable to attach to " .. container_name .. " (Container not running)",
+			vim.log.levels.ERROR,
+			{
+				title = "  docker-containers.nvim",
+				timeout = 2000,
+			}
+		)
+		return
+	else
+		docker.attach_container(container_name)
+	end
 end
 
 local function view_logs()
@@ -512,6 +559,12 @@ local function setup_keymaps()
 		callback = start_container,
 	})
 
+	vim.api.nvim_buf_set_keymap(M.sidebar_buf, "v", config.maps.start or "s", "", {
+		noremap = true,
+		silent = true,
+		callback = start_selected_containers,
+	})
+
 	vim.api.nvim_buf_set_keymap(M.sidebar_buf, "n", config.maps.down or "d", "", {
 		noremap = true,
 		silent = true,
@@ -524,18 +577,31 @@ local function setup_keymaps()
 		callback = restart_container,
 	})
 
-   vim.api.nvim_buf_set_keymap(M.sidebar_buf, "n", config.maps.attach_terminal, "", {
+	vim.api.nvim_buf_set_keymap(M.sidebar_buf, "n", config.maps.attach_terminal, "", {
 		noremap = true,
 		silent = true,
 		callback = attach_terminal,
-   })
+	})
 
-   vim.api.nvim_buf_set_keymap(M.sidebar_buf, "n", config.maps.view_logs, "", {
+	vim.api.nvim_buf_set_keymap(M.sidebar_buf, "n", config.maps.view_logs, "", {
 		noremap = true,
 		silent = true,
 		callback = view_logs,
+	})
+
+   vim.api.nvim_buf_set_keymap(M.sidebar_buf, "n", config.maps.refresh or "R", "", {
+      noremap = true,
+      silent = true,
+      callback = M.refresh,
    })
 
+   vim.api.nvim_buf_set_keymap(M.sidebar_buf, "n", config.maps.exit or "q", "", {
+      noremap = true,
+      silent = true,
+      callback = function()
+         vim.api.nvim_win_close(M.sidebar_win, false)
+      end,
+   })
 end
 
 function M.open()

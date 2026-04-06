@@ -3,6 +3,7 @@ local config = require("docker-containers.config")
 
 local M = {}
 
+---@param opts? table
 function M.setup(opts)
 	config = vim.tbl_deep_extend("force", config, opts or {})
 

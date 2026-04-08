@@ -1,4 +1,4 @@
-local Terminal = require("toggleterm.terminal").Terminal
+-- local Terminal = require("toggleterm.terminal").Terminal
 local config = require("docker-containers.config")
 local cache = require("docker-containers.cache")
 local Job = require("plenary.job")
@@ -175,64 +175,113 @@ function M.get_networks(callback)
 end
 
 function M.start_container(container_name, callback)
-   Job:new({
-      command = "docker",
-      args = { "start", container_name },
-      on_exit = function(j, return_val)
-         if return_val == 0 then
-            callback(true, "Container started successfully")
-         else
-            callback(false, table.concat(j:result(), "\n"))
-         end
-      end,
-   }):sync()
+	Job:new({
+		command = "docker",
+		args = { "start", container_name },
+		on_exit = function(j, return_val)
+			if return_val == 0 then
+            cache.set("projects", function(projects)
+                if not projects then return nil end
+                for _, project_containers in pairs(projects) do
+                    for _, container in ipairs(project_containers) do
+                        if container.name == container_name then
+                            container.state = "running"
+                            container.status = "Up"
+                        end
+                    end
+                end
+                return projects
+            end)
+				callback(true, "Container started successfully")
+			else
+				callback(false, table.concat(j:result(), "\n"))
+			end
+		end,
+	}):sync()
+	-- local cmd = vim.list.extend({ "docker", "start", container_name }, {})
+	-- local sys_opts = { cwd = vim.fn.getcwd(), env = vim.fn.environ(), timeout = 20000 }
+	-- local out = async.await(3, vim.system, cmd, sys_opts)
+	-- if out.code == 0 then
+	--    callback(true, "Container started successfully")
+	-- else
+	--    callback(false, out.stderr)
+	-- end
 end
 
+---@param container_name string
+---@param callback function(success: boolean, message: string)
 function M.stop_container(container_name, callback)
-   Job:new({
-      command = "docker",
-      args = { "stop", container_name },
-      on_exit = function(j, return_val)
-         if return_val == 0 then
-            callback(true, "Container stopped successfully")
-         else
-            callback(false, table.concat(j:result(), "\n"))
-         end
-      end,
-   }):sync(20000, 5)
+	Job:new({
+		command = "docker",
+		args = { "stop", container_name },
+		on_exit = function(j, return_val)
+			if return_val == 0 then
+            cache.set("projects", function(projects)
+                if not projects then return nil end
+                for _, project_containers in pairs(projects) do
+                    for _, container in ipairs(project_containers) do
+                        if container.name == container_name then
+                            container.state = "stopped"
+                            container.status = "Exited"
+                        end
+                    end
+                end
+                return projects
+            end)
+				callback(true, "Container stopped successfully")
+			else
+				callback(false, table.concat(j:result(), "\n"))
+			end
+		end,
+	}):sync(20000, 5)
 end
 
+---@param container_name string
+---@param callback function(success: boolean, message: string)
 function M.restart_container(container_name, callback)
-   Job:new({
-      command = "docker",
-      args = { "restart", container_name },
-      on_exit = function(j, return_val)
-         if return_val == 0 then
-            callback(true, "Container restarted successfully")
-         else
-            callback(false, table.concat(j:result(), "\n"))
-         end
-      end,
-   }):sync()
+	Job:new({
+		command = "docker",
+		args = { "restart", container_name },
+		on_exit = function(j, return_val)
+			if return_val == 0 then
+            cache.set("projects", function(projects)
+                if not projects then return nil end
+                for _, project_containers in pairs(projects) do
+                    for _, container in ipairs(project_containers) do
+                        if container.name == container_name then
+                            container.state = "running"
+                            container.status = "Up"
+                        end
+                    end
+                end
+                return projects
+            end)
+				callback(true, "Container restarted successfully")
+			else
+				callback(false, table.concat(j:result(), "\n"))
+			end
+		end,
+	}):sync()
 end
 
-function M.attach_container(container_name)
-   Terminal:new({
-      cmd = "docker exec -it " .. container_name .. " /bin/bash",
-      direction = config.term.direction,
-      display_name = container_name .. "_term",
-      hidden = true,
-
-   }):toggle()
-end
-
-function M.view_logs(container_name)
-   Terminal:new({
-      cmd = "docker logs -f " .. container_name,
-      direction = config.term.direction,
-      display_name = container_name .. "_logs",
-      hidden = true,
-   }):toggle()
-end
+-- ---@param container_name string
+-- function M.attach_container(container_name)
+-- 	Terminal:new({
+-- 		cmd = "docker exec -it " .. container_name .. " /bin/sh",
+-- 		direction = config.term.direction,
+-- 		display_name = container_name .. "_term",
+-- 		hidden = true,
+-- 	}):toggle()
+-- end
+--
+-- ---@param container_name string
+-- function M.view_logs(container_name)
+-- 	Terminal:new({
+-- 		cmd = " /usr/bin/bash -c docker logs -f " .. container_name,
+-- 		direction = config.term.direction,
+-- 		display_name = container_name .. "_logs",
+-- 		hidden = true,
+-- 	}):toggle()
+-- end
 
 return M

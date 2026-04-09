@@ -1,7 +1,8 @@
--- local Terminal = require("toggleterm.terminal").Terminal
 local config = require("docker-containers.config")
 local cache = require("docker-containers.cache")
 local Job = require("plenary.job")
+local async = require("vim._async")
+
 local M = {}
 
 ---@param status_string string
@@ -14,6 +15,7 @@ local function parse_status(status_string)
 end
 
 ---@param callback function(projects: table?, error: string?)
+---@return nil
 function M.get_containers(callback)
 	local project_cache = cache.get("projects")
 	if project_cache ~= nil then
@@ -174,94 +176,135 @@ function M.get_networks(callback)
 	end
 end
 
-function M.start_container(container_name, callback)
-	Job:new({
-		command = "docker",
-		args = { "start", container_name },
-		on_exit = function(j, return_val)
-			if return_val == 0 then
-            cache.set("projects", function(projects)
-                if not projects then return nil end
-                for _, project_containers in pairs(projects) do
-                    for _, container in ipairs(project_containers) do
-                        if container.name == container_name then
-                            container.state = "running"
-                            container.status = "Up"
-                        end
-                    end
-                end
-                return projects
-            end)
-				callback(true, "Container started successfully")
-			else
-				callback(false, table.concat(j:result(), "\n"))
-			end
-		end,
-	}):sync()
-	-- local cmd = vim.list.extend({ "docker", "start", container_name }, {})
-	-- local sys_opts = { cwd = vim.fn.getcwd(), env = vim.fn.environ(), timeout = 20000 }
-	-- local out = async.await(3, vim.system, cmd, sys_opts)
-	-- if out.code == 0 then
-	--    callback(true, "Container started successfully")
-	-- else
-	--    callback(false, out.stderr)
-	-- end
-end
-
 ---@param container_name string
 ---@param callback function(success: boolean, message: string)
-function M.stop_container(container_name, callback)
-	Job:new({
-		command = "docker",
-		args = { "stop", container_name },
-		on_exit = function(j, return_val)
-			if return_val == 0 then
-            cache.set("projects", function(projects)
-                if not projects then return nil end
-                for _, project_containers in pairs(projects) do
-                    for _, container in ipairs(project_containers) do
-                        if container.name == container_name then
-                            container.state = "stopped"
-                            container.status = "Exited"
-                        end
-                    end
-                end
-                return projects
-            end)
-				callback(true, "Container stopped successfully")
-			else
-				callback(false, table.concat(j:result(), "\n"))
+function M.start_container(container_name, callback)
+	async.run(function()
+		local cmd = { "docker", "start", container_name }
+		local sys_opts = { cwd = vim.fn.getcwd(), env = vim.fn.environ(), timeout = 20000 }
+		local out = async.await(3, vim.system, cmd, sys_opts)
+		local stderr = out.stderr or ""
+		if out.code ~= 0 then
+			callback(
+				false,
+				stderr ~= "" and stderr or ("docker stop failed with exit code " .. out.code)
+			)
+			return
+		end
+
+		if stderr ~= "" then
+			callback(false, stderr)
+			return
+		end
+		cache.set("projects", function(projects)
+			if not projects then
+				return nil
 			end
-		end,
-	}):sync(20000, 5)
+			for _, project_containers in pairs(projects) do
+				for _, container in ipairs(project_containers) do
+					if container.name == container_name then
+						container.state = "running"
+						container.status = "Up"
+					end
+				end
+			end
+			return projects
+		end)
+		callback(true, "Container started successfully")
+	end, function(err)
+		if err then
+			callback(false, err)
+		end
+	end)
+end
+
+--- @param container_name string
+--- @param callback function(success: boolean, message: string)
+function M.stop_container(container_name, callback)
+	async.run(function()
+		local cmd = { "docker", "stop", container_name }
+		local sys_opts = { cwd = vim.fn.getcwd(), env = vim.fn.environ(), timeout = 20000 }
+		local out = async.await(3, vim.system, cmd, sys_opts)
+		local stderr = out.stderr or ""
+
+		if out.code ~= 0 then
+			callback(
+				false,
+				stderr ~= "" and stderr or ("docker stop failed with exit code " .. out.code)
+			)
+			return
+		end
+
+		if stderr ~= "" then
+			callback(false, stderr)
+			return
+		end
+
+		cache.set("projects", function(projects)
+			if not projects then
+				return nil
+			end
+			for _, project_containers in pairs(projects) do
+				for _, container in ipairs(project_containers) do
+					if container.name == container_name then
+						container.state = "stopped"
+						container.status = "Exited"
+					end
+				end
+			end
+			return projects
+		end)
+
+		callback(true, "Container stopped successfully")
+	end, function(err)
+		if err then
+			callback(false, err)
+		end
+	end)
 end
 
 ---@param container_name string
 ---@param callback function(success: boolean, message: string)
 function M.restart_container(container_name, callback)
-	Job:new({
-		command = "docker",
-		args = { "restart", container_name },
-		on_exit = function(j, return_val)
-			if return_val == 0 then
-            cache.set("projects", function(projects)
-                if not projects then return nil end
-                for _, project_containers in pairs(projects) do
-                    for _, container in ipairs(project_containers) do
-                        if container.name == container_name then
-                            container.state = "running"
-                            container.status = "Up"
-                        end
-                    end
-                end
-                return projects
-            end)
-				callback(true, "Container restarted successfully")
-			else
-				callback(false, table.concat(j:result(), "\n"))
+	async.run(function()
+		local cmd = { "docker", "restart", container_name }
+		local sys_opts = { cwd = vim.fn.getcwd(), env = vim.fn.environ(), timeout = 20000 }
+		local out = async.await(3, vim.system, cmd, sys_opts)
+		local stderr = out.stderr or ""
+
+		if out.code ~= 0 then
+			callback(
+				false,
+				stderr ~= "" and stderr or ("docker stop failed with exit code " .. out.code)
+			)
+			return
+		end
+
+		if stderr ~= "" then
+			callback(false, stderr)
+			return
+		end
+
+		cache.set("projects", function(projects)
+			if not projects then
+				return nil
 			end
-		end,
-	}):sync()
+			for _, project_containers in pairs(projects) do
+				for _, container in ipairs(project_containers) do
+					if container.name == container_name then
+						container.state = "running"
+						container.status = "Up"
+					end
+				end
+			end
+			return projects
+		end)
+		callback(true, "Container stopped successfully")
+	end, function(err)
+		if err then
+			callback(false, err)
+		end
+	end)
 end
 
 -- ---@param container_name string

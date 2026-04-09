@@ -8,9 +8,9 @@ Cache = {}
 ---@param value function|table|string
 ---@return nil
 function M.set(key, value)
-   if type(value) == "function" then
-      value = value()
-   end
+	if type(value) == "function" then
+		value = value()
+	end
 	if Cache[key] ~= nil then
 		Cache[key] = nil
 		Cache[key] = value

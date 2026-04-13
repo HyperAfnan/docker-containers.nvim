@@ -278,7 +278,7 @@ function M.restart_container(container_name, callback)
 			return projects
 		end)
 
-		callback(true, "Container stopped successfully")
+		callback(true, "Container restarted successfully")
 	end, function(err)
 		if err then
 			callback(false, err)

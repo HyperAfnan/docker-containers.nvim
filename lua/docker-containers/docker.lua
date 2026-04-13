@@ -34,7 +34,7 @@ function M.get_containers(callback)
 				"ps",
 				"-a",
 				"--format",
-				"{{.Names}}\t{{.Status}}\t{{.Image}}",
+				"{{.Names}}\t{{.Status}}\t{{.Image}}\t{{.Label \"com.docker.compose.project\"}}",
 			})
 			if not success then
 				callback(nil, output)
@@ -43,24 +43,11 @@ function M.get_containers(callback)
 
 			local containers = {}
 			for line in output:gmatch("[^\r\n]+") do
-				local name, status, image = line:match("([^\t]+)\t([^\t]+)\t([^\t]+)")
+				local name, status, image, project = line:match("([^\t]+)\t([^\t]+)\t([^\t]+)\t([^\t]+)")
 				if name then
-					local project = "standalone"
-					local inspect_success, project_output = docker_async.run_command({
-						"docker",
-						"inspect",
-						name,
-						"--format",
-						"{{index .Config.Labels \"com.docker.compose.project\"}}",
-					})
-
-					if inspect_success then
-						local project_name = trim(project_output)
-						if project_name ~= "" and project_name ~= "<no value>" then
-							project = project_name
-						end
+					if not project or project == "<no value>" then
+						project = "standalone"
 					end
-
 					table.insert(containers, {
 						name = name,
 						status = status,

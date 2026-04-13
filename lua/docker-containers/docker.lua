@@ -1,8 +1,10 @@
-local Terminal = require("toggleterm.terminal").Terminal
-local config = require("docker-containers.config")
-local nio = require("nio")
+local cache = require("docker-containers.cache")
+local async = require("vim._async")
+local docker_async = require("docker-containers.async")
+
 local M = {}
 
+---@param status_string string
 local function parse_status(status_string)
 	if status_string:match("^Up ") then
 		return "running"
@@ -11,208 +13,290 @@ local function parse_status(status_string)
 	end
 end
 
-function M.get_containers()
-	local handle = io.popen("docker ps -a --format \"{{.Names}}\t{{.Status}}\t{{.Image}}\"")
-	if not handle then
-		return {}
-	end
-
-	local result = handle:read("*a")
-	handle:close()
-
-	local containers = {}
-	for line in result:gmatch("[^\r\n]+") do
-		local name, status, image = line:match("([^\t]+)\t([^\t]+)\t([^\t]+)")
-		if name then
-			local label_handle =
-				io.popen("docker inspect " .. name .. " --format='{{json .Config.Labels}}'")
-			local labels_json = ""
-			if label_handle then
-				labels_json = label_handle:read("*a")
-				label_handle:close()
+---@param callback function(projects: table?, error: string?)
+---@return nil
+function M.get_containers(callback)
+	callback = callback or function() end
+	local project_cache = cache.get("projects")
+	if project_cache ~= nil then
+		callback(project_cache, nil)
+	else
+		async.run(function()
+			local success, output = docker_async.run_command({
+				"docker",
+				"ps",
+				"-a",
+				"--format",
+				"{{.Names}}\t{{.Status}}\t{{.Image}}\t{{.Label \"com.docker.compose.project\"}}",
+			})
+			if not success then
+				callback(nil, output)
+				return
 			end
 
-			local project = "standalone"
-			if labels_json and labels_json ~= "" then
-				local project_match = labels_json:match("\"com.docker.compose.project\":\"([^\"]+)\"")
-				if project_match then
-					project = project_match
+			local containers = {}
+			for line in output:gmatch("[^\r\n]+") do
+				local name, status, image, project =
+					line:match("([^\t]+)\t([^\t]+)\t([^\t]+)\t([^\t]+)")
+				if name then
+					if not project or project == "<no value>" then
+						project = "standalone"
+					end
+					table.insert(containers, {
+						name = name,
+						status = status,
+						state = parse_status(status),
+						image = image,
+						project = project,
+					})
 				end
 			end
 
-			table.insert(containers, {
-				name = name,
-				status = status,
-				state = parse_status(status),
-				image = image,
-				project = project,
-			})
-		end
-	end
+			local projects = {}
+			for _, container in ipairs(containers) do
+				if not projects[container.project] then
+					projects[container.project] = {}
+				end
+				table.insert(projects[container.project], container)
+			end
 
-	local projects = {}
-	for _, container in ipairs(containers) do
-		if not projects[container.project] then
-			projects[container.project] = {}
-		end
-		table.insert(projects[container.project], container)
+			cache.set("projects", projects)
+			callback(projects, nil)
+		end, function(err)
+			if err then
+				callback(nil, err)
+			end
+		end)
 	end
-
-	return projects
 end
 
-function M.get_images()
-	local handle =
-		io.popen("docker images --format \"{{.Repository}}:{{.Tag}}\t{{.ID}}\t{{.Size}}\"")
-	if not handle then
-		return {}
-	end
-
-	local result = handle:read("*a")
-	handle:close()
-
-	local images = {}
-	for line in result:gmatch("[^\r\n]+") do
-		local name, id, size = line:match("([^\t]+)\t([^\t]+)\t([^\t]+)")
-		if name then
-			table.insert(images, {
-				name = name,
-				id = id,
-				size = size,
-			})
-		end
-	end
-
-	return images
-end
-
-function M.get_volumes()
-	local handle = io.popen("docker volume ls --format \"{{.Name}}\"")
-	if not handle then
-		return {}
-	end
-
-	local result = handle:read("*a")
-	handle:close()
-
-	local volumes = {}
-	for line in result:gmatch("[^\r\n]+") do
-		if line ~= "" then
-			table.insert(volumes, { name = line })
-		end
-	end
-
-	return volumes
-end
-
-function M.get_networks()
-	local handle = io.popen("docker network ls --format \"{{.Name}}\t{{.Driver}}\"")
-	if not handle then
-		return {}
-	end
-
-	local result = handle:read("*a")
-	handle:close()
-
-	local networks = {}
-	for line in result:gmatch("[^\r\n]+") do
-		local name, driver = line:match("([^\t]+)\t([^\t]+)")
-		if name then
-			table.insert(networks, {
-				name = name,
-				driver = driver,
-			})
-		end
-	end
-
-	return networks
-end
-
-function M.start_container(container_name)
-	local handle = io.popen("docker start " .. container_name .. " 2>&1")
-	if not handle then
-		return false, "Failed to execute docker start command"
-	end
-
-	local result = handle:read("*a")
-	local success = handle:close()
-
-	if success then
-		return true, "Container started successfully"
+---@param callback function(images: table?, error: string?)
+function M.get_images(callback)
+	callback = callback or function() end
+	local image_cache = cache.get("images")
+	if image_cache ~= nil then
+		callback(image_cache, nil)
 	else
-		return false, result
+		async.run(function()
+			local success, output = docker_async.run_command({
+				"docker",
+				"images",
+				"--format",
+				"{{.Repository}}:{{.Tag}}\t{{.ID}}\t{{.Size}}",
+			})
+			if not success then
+				callback(nil, output)
+				return
+			end
+
+			local images = {}
+			for line in output:gmatch("[^\r\n]+") do
+				local name, id, size = line:match("([^\t]+)\t([^\t]+)\t([^\t]+)")
+				if name then
+					table.insert(images, {
+						name = name,
+						id = id,
+						size = size,
+					})
+				end
+			end
+
+			cache.set("images", images)
+			callback(images, nil)
+		end, function(err)
+			if err then
+				callback(nil, err)
+			end
+		end)
 	end
 end
 
+---@param callback function(volumes: table?, error: string?)
+function M.get_volumes(callback)
+	callback = callback or function() end
+	local volume_cache = cache.get("volumes")
+	if volume_cache ~= nil then
+		callback(volume_cache, nil)
+	else
+		async.run(function()
+			local success, output =
+				docker_async.run_command({ "docker", "volume", "ls", "--format", "{{.Name}}" })
+			if not success then
+				callback(nil, output)
+				return
+			end
+
+			local volumes = {}
+			for line in output:gmatch("[^\r\n]+") do
+				if line ~= "" then
+					table.insert(volumes, { name = line })
+				end
+			end
+
+			cache.set("volumes", volumes)
+			callback(volumes, nil)
+		end, function(err)
+			if err then
+				callback(nil, err)
+			end
+		end)
+	end
+end
+
+---@param callback function(networks: table?, error: string?)
+function M.get_networks(callback)
+	callback = callback or function() end
+	local network_cache = cache.get("networks")
+	if network_cache ~= nil then
+		callback(network_cache, nil)
+	else
+		async.run(function()
+			local cmd = { "docker", "network", "ls", "--format", "{{.Name}}\t{{.Driver}}" }
+			local success, output = docker_async.run_command(cmd)
+			if not success then
+				callback(nil, output)
+				return
+			end
+			local networks = {}
+			for line in output:gmatch("[^\r\n]+") do
+				local name, driver = line:match("([^\t]+)\t([^\t]+)")
+				if name then
+					table.insert(networks, {
+						name = name,
+						driver = driver,
+					})
+				end
+			end
+			cache.set("networks", networks)
+			callback(networks, nil)
+		end, function(err)
+			if err then
+				callback(nil, err)
+			end
+		end)
+	end
+end
+
+---@param container_name string
+---@param callback function(success: boolean, message: string)
+function M.start_container(container_name, callback)
+	async.run(function()
+		local cmd = { "docker", "start", container_name }
+		local ok, out = docker_async.run_command(cmd)
+		if not ok then
+			callback(false, out)
+			return
+		end
+
+		cache.set("projects", function(projects)
+			if not projects then
+				return nil
+			end
+			for _, project_containers in pairs(projects) do
+				for _, container in ipairs(project_containers) do
+					if container.name == container_name then
+						container.state = "running"
+						container.status = "Up"
+					end
+				end
+			end
+			return projects
+		end)
+
+		callback(true, "Container started successfully")
+	end, function(err)
+		if err then
+			callback(false, err)
+		end
+	end)
+end
+
+---@param container_name string
+---@param callback function(success: boolean, message: string)
 function M.stop_container(container_name, callback)
-	nio.run(function()
-		local handle, err = nio.process.run({
-			cmd = "docker",
-			args = { "stop", container_name },
-		})
-
-		if not handle then
-			callback(false, err or "Failed to execute docker stop command")
+	async.run(function()
+		local cmd = { "docker", "stop", container_name }
+		local ok, out = docker_async.run_command(cmd)
+		if not ok then
+			callback(false, out)
 			return
 		end
 
-		local error_output = handle.stderr.read()
+		cache.set("projects", function(projects)
+			if not projects then
+				return nil
+			end
+			for _, project_containers in pairs(projects) do
+				for _, container in ipairs(project_containers) do
+					if container.name == container_name then
+						container.state = "stopped"
+						container.status = "Exited"
+					end
+				end
+			end
+			return projects
+		end)
 
-		local exit_code = handle.result()
-
-		if exit_code == 0 then
-			callback(true, "Container stopped successfully")
-		else
-			callback(false, error_output or "Unknown error")
+		callback(true, "Container stopped successfully")
+	end, function(err)
+		if err then
+			callback(false, err)
 		end
-
-		handle.close()
 	end)
 end
 
+---@param container_name string
+---@param callback function(success: boolean, message: string)
 function M.restart_container(container_name, callback)
-	nio.run(function()
-		local handle, err = nio.process.run({
-			cmd = "docker",
-			args = { "restart", container_name },
-		})
-
-		if not handle then
-			callback(false, err or "Failed to execute docker restart command")
+	async.run(function()
+		local cmd = { "docker", "restart", container_name }
+		local ok, out = docker_async.run_command(cmd)
+		if not ok then
+			callback(false, out)
 			return
 		end
 
-		local error_output = handle.stderr.read()
+		cache.set("projects", function(projects)
+			if not projects then
+				return nil
+			end
+			for _, project_containers in pairs(projects) do
+				for _, container in ipairs(project_containers) do
+					if container.name == container_name then
+						container.state = "running"
+						container.status = "Up"
+					end
+				end
+			end
+			return projects
+		end)
 
-		local exit_code = handle.result()
-
-		if exit_code == 0 then
-			callback(true, "Container restarted successfully")
-		else
-			callback(false, error_output or "Unknown error")
+		callback(true, "Container restarted successfully")
+	end, function(err)
+		if err then
+			callback(false, err)
 		end
-
-		handle.close()
 	end)
 end
 
-function M.attach_container(container_name)
-	Terminal:new({
-		cmd = "docker exec -it " .. container_name .. " /bin/bash",
-		direction = config.term.direction,
-      display_name = container_name .. "_term",
-      hidden = true,
-
-	}):toggle()
-end
-
-function M.view_logs(container_name)
-   Terminal:new({
-      cmd = "docker logs -f " .. container_name,
-      direction = config.term.direction,
-         display_name = container_name .. "_logs",
-         hidden = true,
-   }):toggle()
-end
+-- ---@param container_name string
+-- function M.attach_container(container_name)
+-- 	Terminal:new({
+-- 		cmd = "docker exec -it " .. container_name .. " /bin/sh",
+-- 		direction = config.term.direction,
+-- 		display_name = container_name .. "_term",
+-- 		hidden = true,
+-- 	}):toggle()
+-- end
+--
+-- ---@param container_name string
+-- function M.view_logs(container_name)
+-- 	Terminal:new({
+-- 		cmd = " /usr/bin/bash -c docker logs -f " .. container_name,
+-- 		direction = config.term.direction,
+-- 		display_name = container_name .. "_logs",
+-- 		hidden = true,
+-- 	}):toggle()
+-- end
 
 return M

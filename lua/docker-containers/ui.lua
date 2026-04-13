@@ -1,6 +1,7 @@
 local docker = require("docker-containers.docker")
 local config = require("docker-containers.config")
 local highlights = require("docker-containers.highlights")
+local tree = require("docker-containers.tree")
 
 local M = {}
 
@@ -16,116 +17,9 @@ M.state = {
 		networks = true,
 	},
 }
-
-local function create_node(kind, data, collapsed)
-	return {
-		kind = kind,
-		collapsed = collapsed or false,
-		children = {},
-		data = data or {},
-		parent = nil,
-	}
-end
-
-local function add_child(parent, child)
-	table.insert(parent.children, child)
-	child.parent = parent
-end
-
-local function build_tree(docker_data, state)
-	local root = create_node("root", {})
-
-	local containers_section = create_node("section", {
-		name = "Containers",
-	}, state.collapsed.containers or false)
-
-	local projects = docker_data.containers
-	local total_containers = 0
-	for _, containers in pairs(projects) do
-		total_containers = total_containers + #containers
-	end
-	containers_section.data.count = total_containers
-
-	local project_names = {}
-	for project_name, _ in pairs(projects) do
-		table.insert(project_names, project_name)
-	end
-	table.sort(project_names)
-
-	for _, project_name in ipairs(project_names) do
-		local containers = projects[project_name]
-		local project_key = "project_" .. project_name
-		local project_node = create_node("project", {
-			name = project_name,
-		}, state.collapsed[project_key] or false)
-
-		for _, container in ipairs(containers) do
-			local container_node = create_node("container", {
-				name = container.name,
-				status = container.status,
-				state = container.state,
-				image = container.image,
-			})
-			add_child(project_node, container_node)
-		end
-
-		add_child(containers_section, project_node)
-	end
-
-	add_child(root, containers_section)
-
-	local images_section = create_node("section", {
-		name = "Images",
-		count = #docker_data.images,
-	}, state.collapsed.images or false)
-
-	for _, image in ipairs(docker_data.images) do
-		local image_node = create_node("image", {
-			name = image.name,
-			id = image.id,
-			size = image.size,
-		})
-		add_child(images_section, image_node)
-	end
-
-	add_child(root, images_section)
-
-	local volumes_section = create_node("section", {
-		name = "Volumes",
-		count = #docker_data.volumes,
-	}, state.collapsed.volumes or false)
-
-	for _, volume in ipairs(docker_data.volumes) do
-		local volume_node = create_node("volume", {
-			name = volume.name,
-		})
-		add_child(volumes_section, volume_node)
-	end
-
-	add_child(root, volumes_section)
-
-	local networks_section = create_node("section", {
-		name = "Networks",
-		count = #docker_data.networks,
-	}, state.collapsed.networks or false)
-
-	for _, network in ipairs(docker_data.networks) do
-		local network_node = create_node("network", {
-			name = network.name,
-			driver = network.driver,
-		})
-		add_child(networks_section, network_node)
-	end
-
-	add_child(root, networks_section)
-
-	return root
-end
-
 local function render_tree(root)
 	local lines = {}
 	local line_to_node = {}
-
 	local function render_node(node, indent)
 		if node.kind == "root" then
 			for _, child in ipairs(node.children) do
@@ -220,11 +114,7 @@ local function apply_highlights()
 		local line_idx = line_num - 1
 		local line = vim.api.nvim_buf_get_lines(M.sidebar_buf, line_idx, line_idx + 1, false)[1]
 
-		if not line then
-			goto continue
-		end
-
-		if node.kind == "section" then
+		if line and node.kind == "section" then
 			vim.api.nvim_buf_add_highlight(
 				M.sidebar_buf,
 				highlights.ns_id,
@@ -257,7 +147,7 @@ local function apply_highlights()
 					#line
 				)
 			end
-		elseif node.kind == "project" then
+		elseif line and node.kind == "project" then
 			vim.api.nvim_buf_add_highlight(
 				M.sidebar_buf,
 				highlights.ns_id,
@@ -277,7 +167,7 @@ local function apply_highlights()
 				spaces_len,
 				icon_end
 			)
-		elseif node.kind == "container" then
+		elseif line and node.kind == "container" then
 			vim.api.nvim_buf_add_highlight(
 				M.sidebar_buf,
 				highlights.ns_id,
@@ -301,7 +191,7 @@ local function apply_highlights()
 				spaces_len,
 				status_icon_end
 			)
-		elseif node.kind == "image" then
+		elseif line and node.kind == "image" then
 			vim.api.nvim_buf_add_highlight(
 				M.sidebar_buf,
 				highlights.ns_id,
@@ -310,7 +200,7 @@ local function apply_highlights()
 				0,
 				#line
 			)
-		elseif node.kind == "volume" then
+		elseif line and node.kind == "volume" then
 			vim.api.nvim_buf_add_highlight(
 				M.sidebar_buf,
 				highlights.ns_id,
@@ -319,7 +209,7 @@ local function apply_highlights()
 				0,
 				#line
 			)
-		elseif node.kind == "network" then
+		elseif line and node.kind == "network" then
 			vim.api.nvim_buf_add_highlight(
 				M.sidebar_buf,
 				highlights.ns_id,
@@ -329,8 +219,6 @@ local function apply_highlights()
 				#line
 			)
 		end
-
-		::continue::
 	end
 end
 
@@ -339,23 +227,72 @@ function M.refresh()
 		return
 	end
 
-	local docker_data = {
-		containers = docker.get_containers(),
-		images = docker.get_images(),
-		volumes = docker.get_volumes(),
-		networks = docker.get_networks(),
-	}
-
-	M.tree = build_tree(docker_data, M.state)
-
-	local lines, line_mapping = render_tree(M.tree)
-	M.line_to_node = line_mapping
-
+	M.line_to_node = {}
 	vim.api.nvim_buf_set_option(M.sidebar_buf, "modifiable", true)
-	vim.api.nvim_buf_set_lines(M.sidebar_buf, 0, -1, false, lines)
+	vim.api.nvim_buf_set_lines(M.sidebar_buf, 0, -1, false, { "Loading Docker resources..." })
 	vim.api.nvim_buf_set_option(M.sidebar_buf, "modifiable", false)
 
-	apply_highlights()
+	local docker_data = {
+		containers = {},
+		images = {},
+		volumes = {},
+		networks = {},
+	}
+	local errors = {}
+	local pending = 4
+	local rendered = false
+
+	local function finalize()
+		if rendered or pending > 0 then
+			return
+		end
+		rendered = true
+
+		M.tree = tree.build_tree(docker_data, M.state)
+		local lines, line_mapping = render_tree(M.tree)
+
+		if #lines == 0 then
+			lines = { "No Docker resources found" }
+			line_mapping = {}
+		end
+
+		vim.schedule(function()
+			if not M.sidebar_buf or not vim.api.nvim_buf_is_valid(M.sidebar_buf) then
+				return
+			end
+
+			M.line_to_node = line_mapping
+			vim.api.nvim_buf_set_option(M.sidebar_buf, "modifiable", true)
+			vim.api.nvim_buf_set_lines(M.sidebar_buf, 0, -1, false, lines)
+			vim.api.nvim_buf_set_option(M.sidebar_buf, "modifiable", false)
+			apply_highlights()
+
+			if #errors > 0 then
+				vim.notify(
+					"Docker refresh completed with errors:\n" .. table.concat(errors, "\n"),
+					vim.log.levels.WARN
+				)
+			end
+		end)
+	end
+
+	local function complete_with(field, fallback)
+		return function(data, err)
+			if data ~= nil then
+				docker_data[field] = data
+			else
+				docker_data[field] = fallback
+				errors[#errors + 1] = err or ("Failed to fetch " .. field)
+			end
+			pending = pending - 1
+			finalize()
+		end
+	end
+
+	docker.get_containers(complete_with("containers", {}))
+	docker.get_images(complete_with("images", {}))
+	docker.get_volumes(complete_with("volumes", {}))
+	docker.get_networks(complete_with("networks", {}))
 end
 
 local function toggle_section()
@@ -396,17 +333,23 @@ local function start_container()
 	end
 
 	local container_name = node.data.name
-	local success, message = docker.start_container(container_name)
+	docker.start_container(container_name, function(success, message)
+		vim.schedule(function()
+			if success then
+				vim.notify("Container '" .. container_name .. "' started", vim.log.levels.INFO, {
+					title = "  docker-containers.nvim",
+					timeout = 3000,
+				})
+			else
+				vim.notify("Failed to start container: " .. message, vim.log.levels.ERROR, {
+					title = "  docker-containers.nvim",
+					timeout = 3000,
+				})
+			end
 
-	if success then
-		vim.notify("Container '" .. container_name .. "' started", vim.log.levels.INFO)
-	else
-		vim.notify("Failed to start container: " .. message, vim.log.levels.ERROR)
-	end
-
-	vim.defer_fn(function()
-		M.refresh()
-	end, 500)
+			M.refresh()
+		end)
+	end)
 end
 
 local function start_selected_containers()
@@ -534,74 +477,36 @@ local function view_logs()
 		return
 	end
 
-   docker.view_logs(container_name)
-
+	docker.view_logs(container_name)
 end
 
 local function setup_keymaps()
-	vim.api.nvim_buf_set_keymap(M.sidebar_buf, "n", config.maps.collapse, "", {
-		noremap = true,
-		silent = true,
-		callback = toggle_section,
-	})
-
-	vim.api.nvim_buf_set_keymap(M.sidebar_buf, "n", config.maps.close or "q", "", {
-		noremap = true,
-		silent = true,
-		callback = function()
-			vim.api.nvim_win_close(M.sidebar_win, false)
-		end,
-	})
-
-	vim.api.nvim_buf_set_keymap(M.sidebar_buf, "n", config.maps.start or "s", "", {
-		noremap = true,
-		silent = true,
-		callback = start_container,
-	})
-
-	vim.api.nvim_buf_set_keymap(M.sidebar_buf, "v", config.maps.start or "s", "", {
-		noremap = true,
-		silent = true,
-		callback = start_selected_containers,
-	})
-
-	vim.api.nvim_buf_set_keymap(M.sidebar_buf, "n", config.maps.down or "d", "", {
-		noremap = true,
-		silent = true,
-		callback = stop_container,
-	})
-
-	vim.api.nvim_buf_set_keymap(M.sidebar_buf, "n", config.maps.restart or "r", "", {
-		noremap = true,
-		silent = true,
-		callback = restart_container,
-	})
-
-	vim.api.nvim_buf_set_keymap(M.sidebar_buf, "n", config.maps.attach_terminal, "", {
-		noremap = true,
-		silent = true,
-		callback = attach_terminal,
-	})
-
-	vim.api.nvim_buf_set_keymap(M.sidebar_buf, "n", config.maps.view_logs, "", {
-		noremap = true,
-		silent = true,
-		callback = view_logs,
-	})
-
-   vim.api.nvim_buf_set_keymap(M.sidebar_buf, "n", config.maps.refresh or "R", "", {
-      noremap = true,
-      silent = true,
-      callback = M.refresh,
-   })
-
-   vim.api.nvim_buf_set_keymap(M.sidebar_buf, "n", config.maps.exit or "q", "", {
-      noremap = true,
-      silent = true,
-      callback = function()
-         vim.api.nvim_win_close(M.sidebar_win, false)
-      end,
-   })
+	local keymaps = {
+		{ mode = "n", key = config.maps.collapse or "<CR>", action = toggle_section },
+		{
+			mode = "n",
+			key = config.maps.close or "q",
+			action = function()
+				vim.api.nvim_win_close(M.sidebar_win, false)
+			end,
+		},
+		{ mode = "n", key = config.maps.start or "s", action = start_container },
+		{ mode = "v", key = config.maps.start or "s", action = start_selected_containers },
+		{ mode = "n", key = config.maps.down or "d", action = stop_container },
+		{ mode = "n", key = config.maps.restart or "r", action = restart_container },
+		{ mode = "n", key = config.maps.attach_terminal, action = attach_terminal },
+		{ mode = "n", key = config.maps.view_logs, action = view_logs },
+		{ mode = "n", key = config.maps.refresh or "R", action = M.refresh },
+	}
+	for _, map in ipairs(keymaps) do
+		vim.api.nvim_buf_set_keymap(
+			M.sidebar_buf,
+			map.mode,
+			map.key,
+			"",
+			{ nowait = true, noremap = true, silent = true, callback = map.action }
+		)
+	end
 end
 
 function M.open()

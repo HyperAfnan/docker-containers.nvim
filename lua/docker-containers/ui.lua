@@ -482,7 +482,7 @@ end
 
 local function setup_keymaps()
 	local keymaps = {
-		{ mode = "n", key = config.maps.toggle_section or "<CR>", action = toggle_section },
+		{ mode = "n", key = config.maps.collapse or "<CR>", action = toggle_section },
 		{
 			mode = "n",
 			key = config.maps.close or "q",

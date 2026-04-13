@@ -4,13 +4,6 @@ local docker_async = require("docker-containers.async")
 
 local M = {}
 
-local function trim(s)
-	if not s then
-		return ""
-	end
-	return (s:gsub("^%s+", ""):gsub("%s+$", ""))
-end
-
 ---@param status_string string
 local function parse_status(status_string)
 	if status_string:match("^Up ") then

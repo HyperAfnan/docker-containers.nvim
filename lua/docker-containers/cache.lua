@@ -1,7 +1,7 @@
 local M = {}
 
 ---@class Cache
-Cache = {}
+local Cache = {}
 
 --- Sets a value in the cache for a given key
 ---@param key string

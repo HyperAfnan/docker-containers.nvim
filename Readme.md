@@ -11,7 +11,7 @@ A Neovim plugin for managing Docker containers, images, volumes, and networks di
 
 ## Requirements
 
-- Neovim 0.9 or later
+- Neovim 0.12 or higher
 - [Docker](https://hub.docker.com/)
 
 ## Installation

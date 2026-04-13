@@ -43,7 +43,8 @@ function M.get_containers(callback)
 
 			local containers = {}
 			for line in output:gmatch("[^\r\n]+") do
-				local name, status, image, project = line:match("([^\t]+)\t([^\t]+)\t([^\t]+)\t([^\t]+)")
+				local name, status, image, project =
+					line:match("([^\t]+)\t([^\t]+)\t([^\t]+)\t([^\t]+)")
 				if name then
 					if not project or project == "<no value>" then
 						project = "standalone"
@@ -188,8 +189,9 @@ end
 function M.start_container(container_name, callback)
 	async.run(function()
 		local cmd = { "docker", "start", container_name }
-		if not docker_async.run_command(cmd) then
-			callback(false, "Failed to start container")
+		local ok, out = docker_async.run_command(cmd)
+		if not ok then
+			callback(false, out)
 			return
 		end
 
@@ -207,6 +209,7 @@ function M.start_container(container_name, callback)
 			end
 			return projects
 		end)
+
 		callback(true, "Container started successfully")
 	end, function(err)
 		if err then
@@ -220,8 +223,9 @@ end
 function M.stop_container(container_name, callback)
 	async.run(function()
 		local cmd = { "docker", "stop", container_name }
-		if not docker_async.run_command(cmd) then
-			callback(false, "Failed to stop container")
+		local ok, out = docker_async.run_command(cmd)
+		if not ok then
+			callback(false, out)
 			return
 		end
 
@@ -253,8 +257,9 @@ end
 function M.restart_container(container_name, callback)
 	async.run(function()
 		local cmd = { "docker", "restart", container_name }
-		if not docker_async.run_command(cmd) then
-			callback(false, "Failed to restart container")
+		local ok, out = docker_async.run_command(cmd)
+		if not ok then
+			callback(false, out)
 			return
 		end
 
@@ -272,6 +277,7 @@ function M.restart_container(container_name, callback)
 			end
 			return projects
 		end)
+
 		callback(true, "Container stopped successfully")
 	end, function(err)
 		if err then

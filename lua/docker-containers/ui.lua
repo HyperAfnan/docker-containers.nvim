@@ -14,7 +14,10 @@ M.tree = nil
 M.line_to_node = {}
 M.rendered_lines = {}
 
--- Local function to render tree to buffer lines and generate the mapping
+--- Renders the tree node and its children recursively to buffer lines
+---@param root docker.sidebar.Node The root node to render
+---@return string[] lines The formatted text lines for the buffer
+---@return table<integer, docker.sidebar.Node|nil> mapping The line index to Node object lookup map
 local function render_tree_to_buffer(root)
 	local lines = {}
 	local line_to_node = {}
@@ -77,6 +80,8 @@ local function render_tree_to_buffer(root)
 	return lines, line_to_node
 end
 
+--- Applies syntax highlighting to the sidebar buffer lines using the namespace
+---@return nil
 local function apply_highlights()
 	if not M.sidebar_buf or not vim.api.nvim_buf_is_valid(M.sidebar_buf) then
 		return
@@ -199,7 +204,8 @@ local function apply_highlights()
 	end
 end
 
--- Core draw function to update UI locally and restore cursor focus
+--- Draws the tree inside the sidebar buffer, keeping track of the cursor position
+---@return nil
 function M.draw()
 	if not M.sidebar_buf or not vim.api.nvim_buf_is_valid(M.sidebar_buf) then
 		return
@@ -264,6 +270,9 @@ function M.draw()
 	end
 end
 
+--- Triggers an asynchronous refresh of all Docker daemon resources
+---@param force_clean_cache? boolean If true, clears the local cache before sending Docker requests
+---@return nil
 function M.refresh(force_clean_cache)
 	if not M.sidebar_buf or not vim.api.nvim_buf_is_valid(M.sidebar_buf) then
 		return
@@ -335,6 +344,8 @@ function M.refresh(force_clean_cache)
 	docker.get_networks(complete_with("networks", {}))
 end
 
+--- Toggles the collapse state of the section or project node under the cursor
+---@return nil
 local function toggle_section()
 	if not M.sidebar_win or not vim.api.nvim_win_is_valid(M.sidebar_win) then
 		return
@@ -348,6 +359,8 @@ local function toggle_section()
 	end
 end
 
+--- Returns a list of container nodes selected in visual mode
+---@return docker.sidebar.Node[] nodes The list of selected container nodes
 function M.get_selected_nodes()
 	local start_line = vim.fn.line("v")
 	local end_line = vim.fn.line(".")
@@ -368,6 +381,8 @@ function M.get_selected_nodes()
 	return nodes
 end
 
+--- Starts the stopped container node currently under the cursor
+---@return nil
 local function start_container()
 	local line = vim.api.nvim_win_get_cursor(M.sidebar_win)[1]
 	local node = M.line_to_node[line]
@@ -396,6 +411,8 @@ local function start_container()
 	end)
 end
 
+--- Starts all container nodes selected in visual mode
+---@return nil
 local function start_selected_containers()
 	local nodes = M.get_selected_nodes()
 
@@ -404,22 +421,100 @@ local function start_selected_containers()
 		return
 	end
 
-	local containers
+	local container_names = {}
 	for _, node in ipairs(nodes) do
-		if not containers then
-			containers = node.data.name
-		else
-			containers = containers .. " " .. node.data.name
-		end
+		table.insert(container_names, node.data.name)
 	end
-	vim.notify("Taking down selected containers...", vim.log.levels.INFO)
-	docker.start_container(containers)
 
-	vim.notify("Selected containers started", vim.log.levels.INFO)
+	docker.start_container(container_names, function(success, message)
+		vim.schedule(function()
+			if success then
+				vim.notify("Selected containers started successfully", vim.log.levels.INFO, {
+					title = "  docker-containers.nvim",
+					timeout = 3000,
+				})
+			else
+				vim.notify("Failed to start selected containers: " .. message, vim.log.levels.ERROR, {
+					title = "  docker-containers.nvim",
+					timeout = 3000,
+				})
+			end
 
-	vim.defer_fn(M.refresh, 500)
+			M.refresh()
+		end)
+	end)
 end
 
+--- Stops all container nodes selected in visual mode
+---@return nil
+local function stop_selected_containers()
+	local nodes = M.get_selected_nodes()
+
+	if #nodes == 0 then
+		vim.notify("No containers selected", vim.log.levels.WARN)
+		return
+	end
+
+	local container_names = {}
+	for _, node in ipairs(nodes) do
+		table.insert(container_names, node.data.name)
+	end
+
+	docker.stop_container(container_names, function(success, message)
+		vim.schedule(function()
+			if success then
+				vim.notify("Selected containers stopped successfully", vim.log.levels.INFO, {
+					title = "  docker-containers.nvim",
+					timeout = 3000,
+				})
+			else
+				vim.notify("Failed to stop selected containers: " .. message, vim.log.levels.ERROR, {
+					title = "  docker-containers.nvim",
+					timeout = 3000,
+				})
+			end
+
+			M.refresh()
+		end)
+	end)
+end
+
+--- Restarts all container nodes selected in visual mode
+---@return nil
+local function restart_selected_containers()
+	local nodes = M.get_selected_nodes()
+
+	if #nodes == 0 then
+		vim.notify("No containers selected", vim.log.levels.WARN)
+		return
+	end
+
+	local container_names = {}
+	for _, node in ipairs(nodes) do
+		table.insert(container_names, node.data.name)
+	end
+
+	docker.restart_container(container_names, function(success, message)
+		vim.schedule(function()
+			if success then
+				vim.notify("Selected containers restarted successfully", vim.log.levels.INFO, {
+					title = "  docker-containers.nvim",
+					timeout = 3000,
+				})
+			else
+				vim.notify("Failed to restart selected containers: " .. message, vim.log.levels.ERROR, {
+					title = "  docker-containers.nvim",
+					timeout = 3000,
+				})
+			end
+
+			M.refresh()
+		end)
+	end)
+end
+
+--- Stops the running container node currently under the cursor
+---@return nil
 local function stop_container()
 	local line = vim.api.nvim_win_get_cursor(M.sidebar_win)[1]
 	local node = M.line_to_node[line]
@@ -427,11 +522,6 @@ local function stop_container()
 	if not node or node.kind ~= "container" then
 		return
 	end
-
-	vim.notify("Stopping container '" .. node.data.name .. "'...", vim.log.levels.INFO, {
-		title = "  docker-containers.nvim",
-		timeout = 2000,
-	})
 
 	local container_name = node.data.name
 
@@ -454,6 +544,8 @@ local function stop_container()
 	end)
 end
 
+--- Restarts the container node currently under the cursor
+---@return nil
 local function restart_container()
 	local line = vim.api.nvim_win_get_cursor(M.sidebar_win)[1]
 	local node = M.line_to_node[line]
@@ -461,11 +553,6 @@ local function restart_container()
 	if not node or node.kind ~= "container" then
 		return
 	end
-
-	vim.notify("Restarting container '" .. node.data.name .. "'...", vim.log.levels.INFO, {
-		title = "  docker-containers.nvim",
-		timeout = 2000,
-	})
 
 	local container_name = node.data.name
 
@@ -488,6 +575,8 @@ local function restart_container()
 	end)
 end
 
+--- Attaches an interactive terminal to the container node under the cursor
+---@return nil
 local function attach_terminal()
 	local line = vim.api.nvim_win_get_cursor(M.sidebar_win)[1]
 	local node = M.line_to_node[line]
@@ -512,6 +601,8 @@ local function attach_terminal()
 	end
 end
 
+--- Opens a read-only terminal to display logs of the container node under the cursor
+---@return nil
 local function view_logs()
 	local line = vim.api.nvim_win_get_cursor(M.sidebar_win)[1]
 	local node = M.line_to_node[line]
@@ -524,6 +615,8 @@ local function view_logs()
 	docker.view_logs(container_name)
 end
 
+--- Toggles the split window help overlay that displays the plugin keybindings
+---@return nil
 function M.show_help()
 	if M.help_win and vim.api.nvim_win_is_valid(M.help_win) then
 		vim.api.nvim_win_close(M.help_win, true)
@@ -665,6 +758,8 @@ function M.show_help()
 	vim.api.nvim_buf_set_option(M.help_buf, "readonly", true)
 end
 
+--- Configures buffer-local keymaps for the sidebar buffer
+---@return nil
 local function setup_keymaps()
 	local keymaps = {
 		{ mode = "n", key = config.maps.collapse or "<CR>", action = toggle_section },
@@ -678,7 +773,9 @@ local function setup_keymaps()
 		{ mode = "n", key = config.maps.start or "s", action = start_container },
 		{ mode = "v", key = config.maps.start or "s", action = start_selected_containers },
 		{ mode = "n", key = config.maps.down or "d", action = stop_container },
+		{ mode = "v", key = config.maps.down or "d", action = stop_selected_containers },
 		{ mode = "n", key = config.maps.restart or "r", action = restart_container },
+		{ mode = "v", key = config.maps.restart or "r", action = restart_selected_containers },
 		{ mode = "n", key = config.maps.attach_terminal or "t", action = attach_terminal },
 		{ mode = "n", key = config.maps.view_logs or "l", action = view_logs },
 		{
@@ -702,6 +799,8 @@ local function setup_keymaps()
 	end
 end
 
+--- Opens the docker-containers sidebar window, sets up buffer/window configurations and begins initialization
+---@return nil
 function M.open()
 	highlights.setup()
 

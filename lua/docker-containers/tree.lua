@@ -17,28 +17,18 @@ function Node.new(opts)
 	self.parent = opts.parent
 	self.children = opts.children or {}
 	self.collapsed = opts.collapsed or false
-	if self.collapsed == nil then
-		self.collapsed = false
-	end
 	self.data = opts.data or {}
 	return self
 end
 
+--- Adds a child node to this node
+---@param child docker.sidebar.Node
+---@return nil
 function Node:add_child(child)
 	table.insert(self.children, child)
 	child.parent = self
 end
 
-function Node:remove_child(child_id)
-	for i, child in ipairs(self.children) do
-		if child.id == child_id then
-			table.remove(self.children, i)
-			child.parent = nil
-			return child
-		end
-	end
-	return nil
-end
 
 --------------------------------------------------------------
 
@@ -55,10 +45,17 @@ function Tree.new()
 	return self
 end
 
+--- Gets a node by its ID
+---@param id string
+---@return docker.sidebar.Node|nil
 function Tree:get_node(id)
 	return self.nodes_by_id[id]
 end
 
+--- Adds a node to the tree under the specified parent ID
+---@param node docker.sidebar.Node
+---@param parent_id string
+---@return nil
 function Tree:add_node(node, parent_id)
 	local parent = self:get_node(parent_id) or self.root
 	parent:add_child(node)
@@ -75,25 +72,9 @@ function Tree:add_node(node, parent_id)
 	end
 end
 
-function Tree:remove_node(id)
-	local node = self:get_node(id)
-	if not node then
-		return
-	end
 
-	if node.parent then
-		node.parent:remove_child(id)
-	end
-
-	local function unregister(n)
-		self.nodes_by_id[n.id] = nil
-		for _, child in ipairs(n.children) do
-			unregister(child)
-		end
-	end
-	unregister(node)
-end
-
+--- Performs a DFS traversal to return all visible (non-collapsed parented) nodes
+---@return docker.sidebar.Node[]
 function Tree:get_visible_nodes()
 	local visible = {}
 	local function dfs(node)
@@ -110,7 +91,6 @@ function Tree:get_visible_nodes()
 	return visible
 end
 
---------------------------------------------------------------
 
 local M = {}
 
@@ -130,7 +110,6 @@ function M.build_tree(docker_data, existing_tree)
 		return default
 	end
 
-	-- 1. Containers Section
 	local projects = docker_data.containers or {}
 	local total_containers = 0
 	for _, containers in pairs(projects) do
@@ -183,7 +162,6 @@ function M.build_tree(docker_data, existing_tree)
 		tree:add_node(project_node, "section:containers")
 	end
 
-	-- 2. Images Section
 	local images_data = docker_data.images or {}
 	local images_section = Node.new({
 		id = "section:images",
@@ -207,10 +185,8 @@ function M.build_tree(docker_data, existing_tree)
 		})
 		images_section:add_child(image_node)
 	end
-	-- Re-add to registry (since children were added directly)
 	tree:add_node(images_section, "root")
 
-	-- 3. Volumes Section
 	local volumes_data = docker_data.volumes or {}
 	local volumes_section = Node.new({
 		id = "section:volumes",
@@ -234,7 +210,6 @@ function M.build_tree(docker_data, existing_tree)
 	end
 	tree:add_node(volumes_section, "root")
 
-	-- 4. Networks Section
 	local networks_data = docker_data.networks or {}
 	local networks_section = Node.new({
 		id = "section:networks",
@@ -262,7 +237,5 @@ function M.build_tree(docker_data, existing_tree)
 	return tree
 end
 
-M.Node = Node
-M.Tree = Tree
 
 return M

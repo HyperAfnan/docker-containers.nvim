@@ -2,6 +2,7 @@ local docker = require("docker-containers.docker")
 local config = require("docker-containers.config")
 local highlights = require("docker-containers.highlights")
 local tree = require("docker-containers.tree")
+local cache = require("docker-containers.cache")
 
 local M = {}
 
@@ -11,36 +12,32 @@ M.help_win = nil
 M.help_buf = nil
 M.tree = nil
 M.line_to_node = {}
-M.state = {
-	collapsed = {
-		containers = false,
-		images = true,
-		volumes = true,
-		networks = true,
-	},
-}
-local function render_tree(root)
+M.rendered_lines = {}
+
+-- Local function to render tree to buffer lines and generate the mapping
+local function render_tree_to_buffer(root)
 	local lines = {}
 	local line_to_node = {}
-	local function render_node(node, indent)
+
+	local function dfs(node, indent)
 		if node.kind == "root" then
 			for _, child in ipairs(node.children) do
-				render_node(child, indent)
+				dfs(child, indent)
 			end
 		elseif node.kind == "section" then
 			local icon = node.collapsed and config.icons.collapsed or config.icons.expanded
 			local line = icon .. " " .. node.data.name .. " (" .. node.data.count .. ")"
-
 			table.insert(lines, line)
 			line_to_node[#lines] = node
 
 			if not node.collapsed then
 				for _, child in ipairs(node.children) do
-					render_node(child, indent + 1)
+					dfs(child, indent + 1)
 				end
 			end
-
+			-- Append blank line after section for spacing
 			table.insert(lines, "")
+			line_to_node[#lines] = nil
 		elseif node.kind == "project" then
 			local icon = node.collapsed and config.icons.collapsed or config.icons.expanded
 			local spaces = string.rep("  ", indent)
@@ -53,56 +50,31 @@ local function render_tree(root)
 				.. " ("
 				.. #node.children
 				.. ")"
-
 			table.insert(lines, line)
 			line_to_node[#lines] = node
 
 			if not node.collapsed then
 				for _, child in ipairs(node.children) do
-					render_node(child, indent + 1)
+					dfs(child, indent + 1)
 				end
 			end
 		elseif node.kind == "container" then
 			local spaces = string.rep("  ", indent)
-			-- Status indicator based on state
 			local status_icon = node.data.state == "running" and config.icons.container_running
 				or config.icons.container_stopped
 			local line = spaces .. status_icon .. " " .. node.data.name
-
 			table.insert(lines, line)
 			line_to_node[#lines] = node
 		elseif node.kind == "image" or node.kind == "volume" or node.kind == "network" then
 			local spaces = string.rep("  ", indent)
 			local line = spaces .. "• " .. node.data.name
-
 			table.insert(lines, line)
 			line_to_node[#lines] = node
 		end
 	end
 
-	render_node(root, 0)
-
+	dfs(root, 0)
 	return lines, line_to_node
-end
-
-local function toggle_node(node, state)
-	if not node then
-		return false
-	end
-
-	if node.kind == "section" or node.kind == "project" then
-		node.collapsed = not node.collapsed
-
-		if node.kind == "section" then
-			state.collapsed[node.data.name:lower()] = node.collapsed
-		elseif node.kind == "project" then
-			state.collapsed["project_" .. node.data.name] = node.collapsed
-		end
-
-		return true
-	end
-
-	return false
 end
 
 local function apply_highlights()
@@ -114,19 +86,20 @@ local function apply_highlights()
 
 	for line_num, node in pairs(M.line_to_node) do
 		local line_idx = line_num - 1
-		local line = vim.api.nvim_buf_get_lines(M.sidebar_buf, line_idx, line_idx + 1, false)[1]
+		local line = M.rendered_lines[line_num]
 
 		if line and node.kind == "section" then
+			local icon_len = line:find(" ") and (line:find(" ") - 1) or 3
 			vim.api.nvim_buf_add_highlight(
 				M.sidebar_buf,
 				highlights.ns_id,
 				highlights.ICON,
 				line_idx,
 				0,
-				1
+				icon_len
 			)
 
-			local name_start = line:find(node.data.name)
+			local name_start = line:find(node.data.name, 1, true)
 			if name_start then
 				vim.api.nvim_buf_add_highlight(
 					M.sidebar_buf,
@@ -160,7 +133,8 @@ local function apply_highlights()
 			)
 			local leading_spaces = line:match("^(%s*)")
 			local spaces_len = #leading_spaces
-			local icon_end = spaces_len + 3
+			local first_space = line:find(" ", spaces_len + 1)
+			local icon_end = first_space and (first_space - 1) or (spaces_len + 3)
 			vim.api.nvim_buf_add_highlight(
 				M.sidebar_buf,
 				highlights.ns_id,
@@ -180,7 +154,8 @@ local function apply_highlights()
 			)
 			local leading_spaces = line:match("^(%s*)")
 			local spaces_len = #leading_spaces
-			local status_icon_end = spaces_len + 3
+			local first_space = line:find(" ", spaces_len + 1)
+			local status_icon_end = first_space and (first_space - 1) or (spaces_len + 3)
 
 			local status_hl = node.data.state == "running" and highlights.STATUS_RUNNING
 				or highlights.STATUS_STOPPED
@@ -224,15 +199,88 @@ local function apply_highlights()
 	end
 end
 
-function M.refresh()
+-- Core draw function to update UI locally and restore cursor focus
+function M.draw()
 	if not M.sidebar_buf or not vim.api.nvim_buf_is_valid(M.sidebar_buf) then
 		return
 	end
 
-	M.line_to_node = {}
+	-- Save cursor info to restore later
+	local cursor_node_id = nil
+	local cursor_col = 0
+	if M.sidebar_win and vim.api.nvim_win_is_valid(M.sidebar_win) then
+		local cursor = vim.api.nvim_win_get_cursor(M.sidebar_win)
+		local cursor_line = cursor[1]
+		cursor_col = cursor[2]
+		local old_node = M.line_to_node[cursor_line]
+		if old_node then
+			cursor_node_id = old_node.id
+		end
+	end
+
+	local lines, line_mapping = {}, {}
+	if M.tree and M.tree.root then
+		lines, line_mapping = render_tree_to_buffer(M.tree.root)
+	end
+
+	if #lines == 0 then
+		lines = { "No Docker resources found" }
+		line_mapping = {}
+	end
+
+	M.rendered_lines = lines
+	M.line_to_node = line_mapping
+
 	vim.api.nvim_buf_set_option(M.sidebar_buf, "modifiable", true)
-	vim.api.nvim_buf_set_lines(M.sidebar_buf, 0, -1, false, { "Loading Docker resources..." })
+	vim.api.nvim_buf_set_lines(M.sidebar_buf, 0, -1, false, lines)
 	vim.api.nvim_buf_set_option(M.sidebar_buf, "modifiable", false)
+
+	apply_highlights()
+
+	-- Restore cursor
+	if M.sidebar_win and vim.api.nvim_win_is_valid(M.sidebar_win) then
+		local target_line = 1
+		if cursor_node_id then
+			for idx, node in pairs(line_mapping) do
+				if node and node.id == cursor_node_id then
+					target_line = idx
+					break
+				end
+			end
+		end
+
+		local max_line = vim.api.nvim_buf_line_count(M.sidebar_buf)
+		if target_line > max_line then
+			target_line = max_line
+		end
+		if target_line < 1 then
+			target_line = 1
+		end
+
+		local current_cursor = vim.api.nvim_win_get_cursor(M.sidebar_win)
+		if current_cursor[1] ~= target_line then
+			pcall(vim.api.nvim_win_set_cursor, M.sidebar_win, { target_line, cursor_col })
+		end
+	end
+end
+
+function M.refresh(force_clean_cache)
+	if not M.sidebar_buf or not vim.api.nvim_buf_is_valid(M.sidebar_buf) then
+		return
+	end
+
+	if force_clean_cache then
+		cache.clean()
+	end
+
+	-- Only display full screen loader on initial open
+	if not M.tree then
+		M.line_to_node = {}
+		M.rendered_lines = {}
+		vim.api.nvim_buf_set_option(M.sidebar_buf, "modifiable", true)
+		vim.api.nvim_buf_set_lines(M.sidebar_buf, 0, -1, false, { "Loading Docker resources..." })
+		vim.api.nvim_buf_set_option(M.sidebar_buf, "modifiable", false)
+	end
 
 	local docker_data = {
 		containers = {},
@@ -250,24 +298,14 @@ function M.refresh()
 		end
 		rendered = true
 
-		M.tree = tree.build_tree(docker_data, M.state)
-		local lines, line_mapping = render_tree(M.tree)
-
-		if #lines == 0 then
-			lines = { "No Docker resources found" }
-			line_mapping = {}
-		end
+		M.tree = tree.build_tree(docker_data, M.tree)
 
 		vim.schedule(function()
 			if not M.sidebar_buf or not vim.api.nvim_buf_is_valid(M.sidebar_buf) then
 				return
 			end
 
-			M.line_to_node = line_mapping
-			vim.api.nvim_buf_set_option(M.sidebar_buf, "modifiable", true)
-			vim.api.nvim_buf_set_lines(M.sidebar_buf, 0, -1, false, lines)
-			vim.api.nvim_buf_set_option(M.sidebar_buf, "modifiable", false)
-			apply_highlights()
+			M.draw()
 
 			if #errors > 0 then
 				vim.notify(
@@ -304,8 +342,9 @@ local function toggle_section()
 	local line = vim.api.nvim_win_get_cursor(M.sidebar_win)[1]
 	local node = M.line_to_node[line]
 
-	if toggle_node(node, M.state) then
-		M.refresh()
+	if node and (node.kind == "section" or node.kind == "project") then
+		node.collapsed = not node.collapsed
+		M.draw()
 	end
 end
 
@@ -640,9 +679,15 @@ local function setup_keymaps()
 		{ mode = "v", key = config.maps.start or "s", action = start_selected_containers },
 		{ mode = "n", key = config.maps.down or "d", action = stop_container },
 		{ mode = "n", key = config.maps.restart or "r", action = restart_container },
-		{ mode = "n", key = config.maps.attach_terminal, action = attach_terminal },
-		{ mode = "n", key = config.maps.view_logs, action = view_logs },
-		{ mode = "n", key = config.maps.refresh or "R", action = M.refresh },
+		{ mode = "n", key = config.maps.attach_terminal or "t", action = attach_terminal },
+		{ mode = "n", key = config.maps.view_logs or "l", action = view_logs },
+		{
+			mode = "n",
+			key = config.maps.refresh or "R",
+			action = function()
+				M.refresh(true)
+			end,
+		},
 		{ mode = "n", key = config.maps.help or "?", action = M.show_help },
 		{ mode = "n", key = "<Tab>", action = toggle_section },
 	}

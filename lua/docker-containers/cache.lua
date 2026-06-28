@@ -9,14 +9,9 @@ local Cache = {}
 ---@return nil
 function M.set(key, value)
 	if type(value) == "function" then
-		value = value()
+		value = value(Cache[key])
 	end
-	if Cache[key] ~= nil then
-		Cache[key] = nil
-		Cache[key] = value
-	else
-		Cache[key] = value
-	end
+	Cache[key] = value
 end
 
 --- Gets a value from the cache for a given key

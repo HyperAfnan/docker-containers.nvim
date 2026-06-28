@@ -296,6 +296,9 @@ function M.refresh()
 end
 
 local function toggle_section()
+	if not M.sidebar_win or not vim.api.nvim_win_is_valid(M.sidebar_win) then
+		return
+	end
 	local line = vim.api.nvim_win_get_cursor(M.sidebar_win)[1]
 	local node = M.line_to_node[line]
 
@@ -497,6 +500,7 @@ local function setup_keymaps()
 		{ mode = "n", key = config.maps.attach_terminal, action = attach_terminal },
 		{ mode = "n", key = config.maps.view_logs, action = view_logs },
 		{ mode = "n", key = config.maps.refresh or "R", action = M.refresh },
+		{ mode = "n", key = "<Tab>", action = toggle_section },
 	}
 	for _, map in ipairs(keymaps) do
 		vim.api.nvim_buf_set_keymap(

@@ -1,46 +1,131 @@
 ---@diagnostic disable: undefined-global
----@class docker.sidebar.Tree
+
+local Node = {}
+Node.__index = Node
+
+---@class docker.sidebar.Node
 ---@field id string
----@field name string
 ---@field kind "root"|"section"|"project"|"container"|"image"|"volume"|"network"
----@field parent? docker.sidebar.Tree
----@field children table<string, docker.sidebar.Tree>
----@field open? boolean
----@field expanded? boolean
+---@field parent? docker.sidebar.Node
+---@field children docker.sidebar.Node[]
+---@field collapsed boolean
 ---@field data table
----@field hidden? boolean
----@field ignored? boolean
----@field node docker.sidebar.Tree
+function Node.new(opts)
+	local self = setmetatable({}, Node)
+	self.id = opts.id
+	self.kind = opts.kind
+	self.parent = opts.parent
+	self.children = opts.children or {}
+	self.collapsed = opts.collapsed or false
+	self.data = opts.data or {}
+	return self
+end
+
+--- Adds a child node to this node
+---@param child docker.sidebar.Node
+---@return nil
+function Node:add_child(child)
+	table.insert(self.children, child)
+	child.parent = self
+end
+
+
+--------------------------------------------------------------
+
 local Tree = {}
+Tree.__index = Tree
 
-function Tree.create_node(kind, data, collapsed)
-	return {
-		kind = kind,
-		collapsed = collapsed or false,
-		children = {},
-		data = data or {},
-		parent = nil,
-	}
+---@class docker.sidebar.Tree
+---@field root docker.sidebar.Node
+---@field nodes_by_id table<string, docker.sidebar.Node>
+function Tree.new()
+	local self = setmetatable({}, Tree)
+	self.root = Node.new({ id = "root", kind = "root" })
+	self.nodes_by_id = { root = self.root }
+	return self
 end
 
-function Tree.add_child(parent, child)
-	table.insert(parent.children, child)
-	child.parent = parent
+--- Gets a node by its ID
+---@param id string
+---@return docker.sidebar.Node|nil
+function Tree:get_node(id)
+	return self.nodes_by_id[id]
 end
 
-function Tree.build_tree(docker_data, state)
-	local root = Tree.create_node("root", {})
+--- Adds a node to the tree under the specified parent ID
+---@param node docker.sidebar.Node
+---@param parent_id string
+---@return nil
+function Tree:add_node(node, parent_id)
+	local parent = self:get_node(parent_id) or self.root
+	parent:add_child(node)
+	self.nodes_by_id[node.id] = node
+	-- Recursively register children if any
+	local function register(n)
+		self.nodes_by_id[n.id] = n
+		for _, child in ipairs(n.children) do
+			register(child)
+		end
+	end
+	for _, child in ipairs(node.children) do
+		register(child)
+	end
+end
 
-	local containers_section = Tree.create_node("section", {
-		name = "Containers",
-	}, state.collapsed.containers or false)
 
-	local projects = docker_data.containers
+--- Performs a DFS traversal to return all visible (non-collapsed parented) nodes
+---@return docker.sidebar.Node[]
+function Tree:get_visible_nodes()
+	local visible = {}
+	local function dfs(node)
+		if node.kind ~= "root" then
+			table.insert(visible, node)
+		end
+		if node.kind == "root" or not node.collapsed then
+			for _, child in ipairs(node.children) do
+				dfs(child)
+			end
+		end
+	end
+	dfs(self.root)
+	return visible
+end
+
+
+local M = {}
+
+---@param docker_data table
+---@param existing_tree? docker.sidebar.Tree
+---@return docker.sidebar.Tree
+function M.build_tree(docker_data, existing_tree)
+	local tree = Tree.new()
+
+	local function get_collapsed(node_id, default)
+		if existing_tree then
+			local old = existing_tree:get_node(node_id)
+			if old ~= nil then
+				return old.collapsed
+			end
+		end
+		return default
+	end
+
+	local projects = docker_data.containers or {}
 	local total_containers = 0
 	for _, containers in pairs(projects) do
 		total_containers = total_containers + #containers
 	end
-	containers_section.data.count = total_containers
+
+	local containers_section = Node.new({
+		id = "section:containers",
+		kind = "section",
+		collapsed = get_collapsed("section:containers", false),
+		data = {
+			name = "Containers",
+			count = total_containers,
+		},
+	})
+	tree:add_node(containers_section, "root")
 
 	local project_names = {}
 	for project_name, _ in pairs(projects) do
@@ -50,88 +135,107 @@ function Tree.build_tree(docker_data, state)
 
 	for _, project_name in ipairs(project_names) do
 		local containers = projects[project_name]
-		local project_key = "project_" .. project_name
-		local project_node = Tree.create_node("project", {
-			name = project_name,
-		}, state.collapsed[project_key] or false)
+		local project_id = "project:" .. project_name
+		local project_node = Node.new({
+			id = project_id,
+			kind = "project",
+			collapsed = get_collapsed(project_id, false),
+			data = {
+				name = project_name,
+			},
+		})
 
 		for _, container in ipairs(containers) do
-			local container_node = Tree.create_node("container", {
-				name = container.name,
-				status = container.status,
-				state = container.state,
-				image = container.image,
+			local container_node = Node.new({
+				id = "container:" .. container.name,
+				kind = "container",
+				data = {
+					name = container.name,
+					status = container.status,
+					state = container.state,
+					image = container.image,
+				},
 			})
-			Tree.add_child(project_node, container_node)
+			project_node:add_child(container_node)
 		end
 
-		Tree.add_child(containers_section, project_node)
+		tree:add_node(project_node, "section:containers")
 	end
 
-	Tree.add_child(root, containers_section)
+	local images_data = docker_data.images or {}
+	local images_section = Node.new({
+		id = "section:images",
+		kind = "section",
+		collapsed = get_collapsed("section:images", true),
+		data = {
+			name = "Images",
+			count = #images_data,
+		},
+	})
 
-	local images_section = Tree.create_node("section", {
-		name = "Images",
-		count = #docker_data.images,
-	}, state.collapsed.images or false)
-
-	for _, image in ipairs(docker_data.images) do
-		local image_node = Tree.create_node("image", {
-			name = image.name,
-			id = image.id,
-			size = image.size,
+	for _, image in ipairs(images_data) do
+		local image_node = Node.new({
+			id = "image:" .. image.name,
+			kind = "image",
+			data = {
+				name = image.name,
+				id = image.id,
+				size = image.size,
+			},
 		})
-		Tree.add_child(images_section, image_node)
+		images_section:add_child(image_node)
 	end
+	tree:add_node(images_section, "root")
 
-	Tree.add_child(root, images_section)
+	local volumes_data = docker_data.volumes or {}
+	local volumes_section = Node.new({
+		id = "section:volumes",
+		kind = "section",
+		collapsed = get_collapsed("section:volumes", true),
+		data = {
+			name = "Volumes",
+			count = #volumes_data,
+		},
+	})
 
-	local volumes_section = Tree.create_node("section", {
-		name = "Volumes",
-		count = #docker_data.volumes,
-	}, state.collapsed.volumes or false)
-
-	for _, volume in ipairs(docker_data.volumes) do
-		local volume_node = Tree.create_node("volume", {
-			name = volume.name,
+	for _, volume in ipairs(volumes_data) do
+		local volume_node = Node.new({
+			id = "volume:" .. volume.name,
+			kind = "volume",
+			data = {
+				name = volume.name,
+			},
 		})
-		Tree.add_child(volumes_section, volume_node)
+		volumes_section:add_child(volume_node)
 	end
+	tree:add_node(volumes_section, "root")
 
-	Tree.add_child(root, volumes_section)
+	local networks_data = docker_data.networks or {}
+	local networks_section = Node.new({
+		id = "section:networks",
+		kind = "section",
+		collapsed = get_collapsed("section:networks", true),
+		data = {
+			name = "Networks",
+			count = #networks_data,
+		},
+	})
 
-	local networks_section = Tree.create_node("section", {
-		name = "Networks",
-		count = #docker_data.networks,
-	}, state.collapsed.networks or false)
-
-	for _, network in ipairs(docker_data.networks) do
-		local network_node = Tree.create_node("network", {
-			name = network.name,
-			driver = network.driver,
+	for _, network in ipairs(networks_data) do
+		local network_node = Node.new({
+			id = "network:" .. network.name,
+			kind = "network",
+			data = {
+				name = network.name,
+				driver = network.driver,
+			},
 		})
-		Tree.add_child(networks_section, network_node)
+		networks_section:add_child(network_node)
 	end
+	tree:add_node(networks_section, "root")
 
-	Tree.add_child(root, networks_section)
-
-	return root
+	return tree
 end
 
---------------------------------------------------------------
 
-Tree.__index = Tree
-
-function Tree.new()
-	local self = setmetatable({}, Tree)
-	self.id = vim.fn.uuid()
-	self.name = "root"
-	self.kind = "root"
-	self.children = {}
-	self.data = {}
-	self.node = nil
-	self.open = false
-	return self
-end
-
-return Tree
+return M

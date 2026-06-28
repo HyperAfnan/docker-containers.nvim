@@ -22,7 +22,6 @@ A Neovim plugin for managing Docker containers, images, volumes, and networks di
 {
   "HyperAfnan/docker-containers.nvim",
   dependencies = {
-    "nvim-neotest/nvim-nio"
     "akinsho/toggleterm.nvim"
   },
   config = function()
@@ -36,7 +35,7 @@ A Neovim plugin for managing Docker containers, images, volumes, and networks di
 ```lua
 use {
   'HyperAfnan/docker-containers.nvim',
-  requires = { 'nvim-neotest/nvim-nio' , 'akinsho/toggleterm.nvim' },
+  requires = { 'akinsho/toggleterm.nvim' },
   config = function()
     require("docker-containers").setup()
   end
@@ -46,7 +45,6 @@ use {
 ### Using [vim-plug](https://github.com/junegunn/vim-plug)
 
 ```vim
-Plug 'nvim-neotest/nvim-nio'
 Plug 'HyperAfnan/docker-containers.nvim'
 Plug 'akinsho/toggleterm.nvim'
 
@@ -77,7 +75,8 @@ require("docker-containers").setup({
     restart = "r",
     down = "d",
     start = "s",
-    close = "q"
+    close = "q",
+    help = "?",
   },
   icons = {
     container_running = "",
@@ -91,5 +90,4 @@ require("docker-containers").setup({
 
 ## Acknowledgments
 
-- Built with [nvim-nio](https://github.com/nvim-neotest/nvim-nio) for async operations
 - Terminal integration via [toggleterm.nvim](https://github.com/akinsho/toggleterm.nvim)

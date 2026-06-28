@@ -1,6 +1,8 @@
 local cache = require("docker-containers.cache")
 local async = require("vim._async")
 local docker_async = require("docker-containers.async")
+local config = require("docker-containers.config")
+local Terminal = require("toggleterm.terminal").Terminal
 
 local M = {}
 
@@ -177,33 +179,103 @@ function M.get_networks(callback)
 	end
 end
 
----@param container_name string
----@param callback function(success: boolean, message: string)
-function M.start_container(container_name, callback)
+--- Helper to update container state inside the projects cache in-place
+---@param names string[]
+---@param state string
+---@param status string
+---@return nil
+local function update_container_cache(names, state, status)
+	cache.set("projects", function(projects)
+		if not projects then
+			return nil
+		end
+		local name_set = {}
+		for _, name in ipairs(names) do
+			name_set[name] = true
+		end
+		for _, project_containers in pairs(projects) do
+			for _, container in ipairs(project_containers) do
+				if name_set[container.name] then
+					container.state = state
+					container.status = status
+				end
+			end
+		end
+		return projects
+	end)
+end
+
+---@param container_names string|string[]
+---@param callback? function(success: boolean, message: string)
+---@return nil
+function M.start_container(container_names, callback)
+	callback = callback or function() end
+	local names = type(container_names) == "table" and container_names or { container_names }
 	async.run(function()
-		local cmd = { "docker", "start", container_name }
+		local cmd = { "docker", "start" }
+		for _, name in ipairs(names) do
+			table.insert(cmd, name)
+		end
 		local ok, out = docker_async.run_command(cmd)
 		if not ok then
 			callback(false, out)
 			return
 		end
 
-		cache.set("projects", function(projects)
-			if not projects then
-				return nil
-			end
-			for _, project_containers in pairs(projects) do
-				for _, container in ipairs(project_containers) do
-					if container.name == container_name then
-						container.state = "running"
-						container.status = "Up"
-					end
-				end
-			end
-			return projects
-		end)
+		update_container_cache(names, "running", "Up")
+		callback(true, "Containers started successfully")
+	end, function(err)
+		if err then
+			callback(false, err)
+		end
+	end)
+end
 
-		callback(true, "Container started successfully")
+---@param container_names string|string[]
+---@param callback? function(success: boolean, message: string)
+---@return nil
+function M.stop_container(container_names, callback)
+	callback = callback or function() end
+	local names = type(container_names) == "table" and container_names or { container_names }
+	async.run(function()
+		local cmd = { "docker", "stop" }
+		for _, name in ipairs(names) do
+			table.insert(cmd, name)
+		end
+		local ok, out = docker_async.run_command(cmd)
+		if not ok then
+			callback(false, out)
+			return
+		end
+
+		update_container_cache(names, "stopped", "Exited")
+		callback(true, "Containers stopped successfully")
+	end, function(err)
+		if err then
+			callback(false, err)
+		end
+	end)
+end
+
+---@param container_names string|string[]
+---@param callback? function(success: boolean, message: string)
+---@return nil
+function M.restart_container(container_names, callback)
+	callback = callback or function() end
+	local names = type(container_names) == "table" and container_names or { container_names }
+	async.run(function()
+		local cmd = { "docker", "restart" }
+		for _, name in ipairs(names) do
+			table.insert(cmd, name)
+		end
+		local ok, out = docker_async.run_command(cmd)
+		if not ok then
+			callback(false, out)
+			return
+		end
+
+		update_container_cache(names, "running", "Up")
+		callback(true, "Containers restarted successfully")
 	end, function(err)
 		if err then
 			callback(false, err)
@@ -212,91 +284,28 @@ function M.start_container(container_name, callback)
 end
 
 ---@param container_name string
----@param callback function(success: boolean, message: string)
-function M.stop_container(container_name, callback)
-	async.run(function()
-		local cmd = { "docker", "stop", container_name }
-		local ok, out = docker_async.run_command(cmd)
-		if not ok then
-			callback(false, out)
-			return
-		end
-
-		cache.set("projects", function(projects)
-			if not projects then
-				return nil
-			end
-			for _, project_containers in pairs(projects) do
-				for _, container in ipairs(project_containers) do
-					if container.name == container_name then
-						container.state = "stopped"
-						container.status = "Exited"
-					end
-				end
-			end
-			return projects
-		end)
-
-		callback(true, "Container stopped successfully")
-	end, function(err)
-		if err then
-			callback(false, err)
-		end
-	end)
+function M.attach_container(container_name)
+	Terminal:new({
+		cmd = "docker exec -it " .. container_name .. " /bin/sh",
+		direction = config.term.direction,
+		display_name = container_name .. "_term",
+		hidden = true,
+	}):toggle()
 end
 
 ---@param container_name string
----@param callback function(success: boolean, message: string)
-function M.restart_container(container_name, callback)
-	async.run(function()
-		local cmd = { "docker", "restart", container_name }
-		local ok, out = docker_async.run_command(cmd)
-		if not ok then
-			callback(false, out)
-			return
-		end
-
-		cache.set("projects", function(projects)
-			if not projects then
-				return nil
-			end
-			for _, project_containers in pairs(projects) do
-				for _, container in ipairs(project_containers) do
-					if container.name == container_name then
-						container.state = "running"
-						container.status = "Up"
-					end
-				end
-			end
-			return projects
-		end)
-
-		callback(true, "Container restarted successfully")
-	end, function(err)
-		if err then
-			callback(false, err)
-		end
-	end)
+function M.view_logs(container_name)
+	Terminal:new({
+		cmd = "docker logs -f " .. container_name,
+		direction = config.term.direction,
+		display_name = container_name .. "_logs",
+		hidden = true,
+		on_open = function(term)
+			vim.cmd("stopinsert")
+			vim.api.nvim_buf_set_option(term.bufnr, "readonly", true)
+			vim.api.nvim_buf_set_option(term.bufnr, "modifiable", false)
+		end,
+	}):toggle()
 end
-
--- ---@param container_name string
--- function M.attach_container(container_name)
--- 	Terminal:new({
--- 		cmd = "docker exec -it " .. container_name .. " /bin/sh",
--- 		direction = config.term.direction,
--- 		display_name = container_name .. "_term",
--- 		hidden = true,
--- 	}):toggle()
--- end
---
--- ---@param container_name string
--- function M.view_logs(container_name)
--- 	Terminal:new({
--- 		cmd = " /usr/bin/bash -c docker logs -f " .. container_name,
--- 		direction = config.term.direction,
--- 		display_name = container_name .. "_logs",
--- 		hidden = true,
--- 	}):toggle()
--- end
 
 return M

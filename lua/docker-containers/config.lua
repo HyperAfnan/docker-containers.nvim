@@ -12,6 +12,7 @@ local M = {
 		attach_terminal = "t",
 		view_logs = "l",
 		refresh = "R",
+		help = "?",
 	},
 	icons = {
 		container_running = "",

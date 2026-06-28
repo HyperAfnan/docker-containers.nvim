@@ -7,6 +7,8 @@ local M = {}
 
 M.sidebar_buf = nil
 M.sidebar_win = nil
+M.help_win = nil
+M.help_buf = nil
 M.tree = nil
 M.line_to_node = {}
 M.state = {
@@ -480,6 +482,147 @@ local function view_logs()
 	docker.view_logs(container_name)
 end
 
+function M.show_help()
+	if M.help_win and vim.api.nvim_win_is_valid(M.help_win) then
+		vim.api.nvim_win_close(M.help_win, true)
+		M.help_win = nil
+		M.help_buf = nil
+		return
+	end
+
+	if not M.sidebar_win or not vim.api.nvim_win_is_valid(M.sidebar_win) then
+		return
+	end
+
+	local groups = {
+		{
+			title = "Commands",
+			maps = {
+				{ key = config.maps.start or "s", desc = "Start" },
+				{ key = config.maps.down or "d", desc = "Stop" },
+				{ key = config.maps.restart or "r", desc = "Restart" },
+				{ key = config.maps.attach_terminal or "t", desc = "Attach" },
+				{ key = config.maps.view_logs or "l", desc = "Logs" },
+			},
+		},
+		{
+			title = "Navigation",
+			maps = {
+				{ key = config.maps.collapse or "<CR>", desc = "Toggle" },
+				{ key = config.maps.refresh or "R", desc = "Refresh" },
+				{ key = config.maps.close or "q", desc = "Close" },
+				{ key = config.maps.help or "?", desc = "Help" },
+			},
+		},
+	}
+
+	local help_content = {}
+	local highlights_to_apply = {}
+
+	for _, group in ipairs(groups) do
+		table.insert(help_content, group.title)
+		local title_line_idx = #help_content - 1
+		table.insert(highlights_to_apply, { title_line_idx, "Title", 0, -1 })
+
+		for i = 1, #group.maps, 2 do
+			local map1 = group.maps[i]
+			local map2 = group.maps[i + 1]
+
+			local col1_key = string.format(" %s", map1.key)
+			local col1_desc = map1.desc
+			local col1_str = string.format("%-6s %-12s", col1_key, col1_desc)
+
+			local line_str = col1_str
+			local col2_start_idx = #line_str
+			local cur_line_idx = #help_content
+
+			table.insert(highlights_to_apply, { cur_line_idx, "Special", 1, 1 + #map1.key })
+			table.insert(
+				highlights_to_apply,
+				{ cur_line_idx, "Comment", 1 + #map1.key + 1, col2_start_idx }
+			)
+
+			if map2 then
+				local col2_key = string.format(" %s", map2.key)
+				local col2_desc = map2.desc
+				line_str = line_str .. string.format("%-6s %s", col2_key, col2_desc)
+
+				table.insert(
+					highlights_to_apply,
+					{ cur_line_idx, "Special", col2_start_idx + 1, col2_start_idx + 1 + #map2.key }
+				)
+				table.insert(
+					highlights_to_apply,
+					{ cur_line_idx, "Comment", col2_start_idx + 1 + #map2.key + 1, -1 }
+				)
+			end
+
+			table.insert(help_content, line_str)
+		end
+
+		table.insert(help_content, "")
+	end
+
+	if help_content[#help_content] == "" then
+		table.remove(help_content, #help_content)
+	end
+
+	M.help_buf = vim.api.nvim_create_buf(false, true)
+	vim.api.nvim_buf_set_lines(M.help_buf, 0, -1, false, help_content)
+
+	local win_opts = {
+		split = "below",
+		win = -1,
+		height = #help_content,
+	}
+
+	M.help_win = vim.api.nvim_open_win(M.help_buf, true, win_opts)
+
+	vim.api.nvim_win_set_option(M.help_win, "number", false)
+	vim.api.nvim_win_set_option(M.help_win, "relativenumber", false)
+	vim.api.nvim_win_set_option(M.help_win, "signcolumn", "no")
+	vim.api.nvim_win_set_option(M.help_win, "winfixheight", true)
+
+	vim.api.nvim_buf_set_option(M.help_buf, "bufhidden", "wipe")
+	vim.api.nvim_buf_set_option(M.help_buf, "buftype", "nofile")
+	vim.api.nvim_buf_set_option(M.help_buf, "swapfile", false)
+	vim.api.nvim_buf_set_option(M.help_buf, "filetype", "docker-containers-help")
+
+	local close_keys = { "q", "<Esc>", config.maps.help or "?" }
+	for _, key in ipairs(close_keys) do
+		vim.keymap.set("n", key, function()
+			if M.help_win and vim.api.nvim_win_is_valid(M.help_win) then
+				vim.api.nvim_win_close(M.help_win, true)
+			end
+			M.help_win = nil
+			M.help_buf = nil
+			if M.sidebar_win and vim.api.nvim_win_is_valid(M.sidebar_win) then
+				vim.api.nvim_set_current_win(M.sidebar_win)
+			end
+		end, { buffer = M.help_buf, silent = true, noremap = true })
+	end
+
+	vim.api.nvim_create_autocmd("BufLeave", {
+		buffer = M.help_buf,
+		once = true,
+		callback = function()
+			if M.help_win and vim.api.nvim_win_is_valid(M.help_win) then
+				vim.api.nvim_win_close(M.help_win, true)
+			end
+			M.help_win = nil
+			M.help_buf = nil
+		end,
+	})
+
+	local ns = vim.api.nvim_create_namespace("DockerHelp")
+	for _, hl in ipairs(highlights_to_apply) do
+		vim.api.nvim_buf_add_highlight(M.help_buf, ns, hl[2], hl[1], hl[3], hl[4])
+	end
+
+	vim.api.nvim_buf_set_option(M.help_buf, "modifiable", false)
+	vim.api.nvim_buf_set_option(M.help_buf, "readonly", true)
+end
+
 local function setup_keymaps()
 	local keymaps = {
 		{ mode = "n", key = config.maps.collapse or "<CR>", action = toggle_section },
@@ -497,6 +640,7 @@ local function setup_keymaps()
 		{ mode = "n", key = config.maps.attach_terminal, action = attach_terminal },
 		{ mode = "n", key = config.maps.view_logs, action = view_logs },
 		{ mode = "n", key = config.maps.refresh or "R", action = M.refresh },
+		{ mode = "n", key = config.maps.help or "?", action = M.show_help },
 	}
 	for _, map in ipairs(keymaps) do
 		vim.api.nvim_buf_set_keymap(

@@ -1,6 +1,10 @@
 # docker-containers.nvim
 
-A Neovim plugin for managing Docker containers, images, volumes, and networks directly from your editor.
+A Neovim plugin for managing Docker containers, images, volumes, and networks directly from your editor
+
+## Preview
+
+https://github.com/user-attachments/assets/74d0d066-8dd9-422e-818a-864d72fc044a
 
 ## Features
 
